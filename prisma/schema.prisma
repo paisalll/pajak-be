@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model m_coa {
+  id_coa                                                String            @id @db.VarChar(20)
+  nama_akun                                             String            @db.VarChar(100)
+  transaksi_pajak_transaksi_pajak_id_akun_debitTom_coa  transaksi_pajak[] @relation("transaksi_pajak_id_akun_debitTom_coa")
+  transaksi_pajak_transaksi_pajak_id_akun_kreditTom_coa transaksi_pajak[] @relation("transaksi_pajak_id_akun_kreditTom_coa")
+}
+
+model m_company {
+  id_company      String            @id @db.VarChar(50)
+  nama_perusahaan String            @db.VarChar(100)
+  npwp            String?           @db.VarChar(20)
+  alamat          String?
+  transaksi_pajak transaksi_pajak[]
+}
+
+model m_partner {
+  id_partner      String            @id @db.VarChar(50)
+  nama_partner    String            @db.VarChar(100)
+  npwp            String?           @db.VarChar(20)
+  tipe            String?           @db.VarChar(20)
+  transaksi_pajak transaksi_pajak[]
+}
+
+model m_pph {
+  id_pph          Int               @id @default(autoincrement())
+  label           String            @db.VarChar(50)
+  rate            Decimal           @db.Decimal(5, 4)
+  jenis_pph       String?           @db.VarChar(50)
+  transaksi_pajak transaksi_pajak[]
+}
+
+model m_ppn {
+  id_ppn          Int               @id @default(autoincrement())
+  label           String            @db.VarChar(50)
+  rate            Decimal           @db.Decimal(5, 4)
+  transaksi_pajak transaksi_pajak[]
+}
+
+model transaksi_pajak {
+  id_transaksi                                BigInt     @id @default(autoincrement())
+  id_company_fk                               String     @db.VarChar(50)
+  tanggal                                     DateTime   @db.Date
+  no_invoice                                  String     @db.VarChar(100)
+  type                                        e_type
+  id_akun_debit                               String?    @db.VarChar(20)
+  id_akun_kredit                              String?    @db.VarChar(20)
+  dpp                                         Decimal    @default(0) @db.Decimal(19, 2)
+  id_ppn_fk                                   Int?
+  nominal_ppn                                 Decimal?   @default(0) @db.Decimal(19, 2)
+  id_pph_fk                                   Int?
+  nominal_pph                                 Decimal?   @default(0) @db.Decimal(19, 2)
+  total_transaksi                             Decimal    @default(0) @db.Decimal(19, 2)
+  id_partner_fk                               String?    @db.VarChar(50)
+  id_user_fk                                  String?    @db.VarChar(50)
+  created_at                                  DateTime?  @default(now()) @db.Timestamp(6)
+  updated_at                                  DateTime?  @default(now()) @db.Timestamp(6)
+  m_coa_transaksi_pajak_id_akun_debitTom_coa  m_coa?     @relation("transaksi_pajak_id_akun_debitTom_coa", fields: [id_akun_debit], references: [id_coa], onDelete: NoAction, onUpdate: NoAction, map: "fk_akun_debit")
+  m_coa_transaksi_pajak_id_akun_kreditTom_coa m_coa?     @relation("transaksi_pajak_id_akun_kreditTom_coa", fields: [id_akun_kredit], references: [id_coa], onDelete: NoAction, onUpdate: NoAction, map: "fk_akun_kredit")
+  m_company                                   m_company  @relation(fields: [id_company_fk], references: [id_company], onDelete: NoAction, onUpdate: NoAction, map: "fk_company")
+  m_partner                                   m_partner? @relation(fields: [id_partner_fk], references: [id_partner], onDelete: NoAction, onUpdate: NoAction, map: "fk_partner")
+  m_pph                                       m_pph?     @relation(fields: [id_pph_fk], references: [id_pph], onDelete: NoAction, onUpdate: NoAction, map: "fk_pph")
+  m_ppn                                       m_ppn?     @relation(fields: [id_ppn_fk], references: [id_ppn], onDelete: NoAction, onUpdate: NoAction, map: "fk_ppn")
+  users                                       users?     @relation(fields: [id_user_fk], references: [id_user], onDelete: NoAction, onUpdate: NoAction, map: "fk_user")
+
+  @@index([id_company_fk], map: "idx_transaksi_company")
+  @@index([tanggal], map: "idx_transaksi_tanggal")
+}
+
+model users {
+  id_user         String            @id @db.VarChar(50)
+  username        String            @unique @db.VarChar(100)
+  password        String            @db.VarChar(255)
+  role            e_role            @default(dbgenerated("'user'::e_role"))
+  transaksi_pajak transaksi_pajak[]
+}
+
+enum e_role {
+  admin
+  user
+}
+
+enum e_type {
+  penjualan
+  pembelian
+}
