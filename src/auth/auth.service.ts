@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login.dto';
@@ -34,5 +34,20 @@ export class AuthService {
         role: user.role
       }
     };
+  }
+
+  async getMe(userId: string) {
+    const user = await this.prisma.users.findUnique({
+      where: { id_user: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User tidak ditemukan');
+    }
+
+    // Buang password dari object user sebelum dikirim ke frontend
+    const { password, ...result } = user;
+    
+    return result;
   }
 }
