@@ -5,15 +5,22 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // 1. Enable Validation
   app.useGlobalPipes(new ValidationPipe());
 
-  // 2. Enable CORS
   app.enableCors({
-    origin: 'http://localhost:8035', // Sesuaikan port Frontend
+    origin: [
+      'http://localhost:5173',                // Frontend Local
+      'http://localhost:3000',                // Backend Local (jika perlu)
+      'https://demo-pajak-app.vercel.app',    // Domain Vercel Anda
+      /\.vercel\.app$/                        // (Optional) Regex untuk mengizinkan semua sub-domain vercel preview
+    ],
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
+  // -------------------------
 
-  await app.listen(3000);
+  const port = process.env.PORT || 3000;
+  await app.listen(port, '0.0.0.0');
+  console.log(`Application is running on: ${await app.getUrl()}`);
 }
 bootstrap();
