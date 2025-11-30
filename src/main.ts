@@ -8,12 +8,7 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe());
 
   app.enableCors({
-    origin: [
-      'http://localhost:5173',                // Frontend Local
-      'http://localhost:3000',                // Backend Local (jika perlu)
-      'https://demo-pajak-app.vercel.app',    // Domain Vercel Anda
-      /\.vercel\.app$/                        // (Optional) Regex untuk mengizinkan semua sub-domain vercel preview
-    ],
+    origin: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
