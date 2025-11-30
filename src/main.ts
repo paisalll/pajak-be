@@ -3,20 +3,21 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
-  console.log('--------------------------------------');
-  console.log('CEK DEPLOY: VERSI CORS BARU (ORIGIN: TRUE)');
-  console.log('--------------------------------------');
-  const app = await NestFactory.create(AppModule, {
-    cors: {
-      origin: true,
-      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-      credentials: true,
-    },
-  });
+  const app = await NestFactory.create(AppModule);
 
+  // 1. Enable Validation
   app.useGlobalPipes(new ValidationPipe());
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port, '0.0.0.0');
+  // 2. Enable CORS (UPDATED)
+  app.enableCors({
+    origin: [
+      'http://localhost:8035',                
+      'https://demo-pajak-app.vercel.app',    
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    credentials: true,
+  });
+
+  await app.listen(3000);
 }
 bootstrap();
