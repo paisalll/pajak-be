@@ -9,6 +9,10 @@ export class MasterService {
     return this.prisma.m_partner.findMany();
   }
 
+  async getCompany() {
+    return this.prisma.m_company.findMany();
+  }
+
   async getCOA() {
     return this.prisma.m_coa.findMany();
   }

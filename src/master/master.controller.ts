@@ -12,6 +12,11 @@ export class MasterController {
     return this.masterService.getPartners();
   }
 
+  @Get('company')
+  getCompany() {
+    return this.masterService.getCompany();
+  }
+
   @Get('coa')
   getCOA() {
     return this.masterService.getCOA();
