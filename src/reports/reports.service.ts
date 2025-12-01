@@ -34,11 +34,11 @@ export class ReportsService {
     transactions.forEach((trx) => {
       worksheet.addRow({
         inv: trx.no_invoice,
-        date: trx.tanggal,
+        date: trx.tanggal_pencatatan.toISOString().split('T')[0],
         partner: trx.m_partner?.nama_partner || '-',
-        dpp: Number(trx.dpp), // Konversi Decimal ke Number JS hati-hati
-        ppn: Number(trx.nominal_ppn),
-        pph: Number(trx.nominal_pph),
+        dpp: Number(trx.total_dpp), // Konversi Decimal ke Number JS hati-hati
+        ppn: Number(trx.total_ppn),
+        pph: Number(trx.total_pph),
         total: Number(trx.total_transaksi),
       });
     });
@@ -89,15 +89,15 @@ export class ReportsService {
             </tr>
             <tr>
               <td>Dasar Pengenaan Pajak (DPP)</td>
-              <td>Rp ${Number(trx.dpp).toLocaleString('id-ID')}</td>
+              <td>Rp ${Number(trx.total_dpp).toLocaleString('id-ID')}</td>
             </tr>
              <tr>
               <td>PPN</td>
-              <td>Rp ${Number(trx.nominal_ppn).toLocaleString('id-ID')}</td>
+              <td>Rp ${Number(trx.total_ppn).toLocaleString('id-ID')}</td>
             </tr>
              <tr>
               <td>PPh</td>
-              <td>(Rp ${Number(trx.nominal_pph).toLocaleString('id-ID')})</td>
+              <td>(Rp ${Number(trx.total_pph).toLocaleString('id-ID')})</td>
             </tr>
             <tr>
               <td><strong>TOTAL</strong></td>

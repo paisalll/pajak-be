@@ -10,8 +10,8 @@ datasource db {
 model m_coa {
   id_coa                                                String            @id @db.VarChar(20)
   nama_akun                                             String            @db.VarChar(100)
-  transaksi_pajak_transaksi_pajak_id_akun_debitTom_coa  transaksi_pajak[] @relation("transaksi_pajak_id_akun_debitTom_coa")
-  transaksi_pajak_transaksi_pajak_id_akun_kreditTom_coa transaksi_pajak[] @relation("transaksi_pajak_id_akun_kreditTom_coa")
+  transaksi_debit  transaksi_pajak[] @relation("debit")
+  transaksi_kredit transaksi_pajak[] @relation("kredit")
 }
 
 model m_company {
@@ -46,33 +46,64 @@ model m_ppn {
 }
 
 model transaksi_pajak {
-  id_transaksi                                BigInt     @id @default(autoincrement())
-  id_company_fk                               String     @db.VarChar(50)
-  tanggal                                     DateTime   @db.Date
-  no_invoice                                  String     @db.VarChar(100)
-  type                                        e_type
-  id_akun_debit                               String?    @db.VarChar(20)
-  id_akun_kredit                              String?    @db.VarChar(20)
-  dpp                                         Decimal    @default(0) @db.Decimal(19, 2)
-  id_ppn_fk                                   Int?
-  nominal_ppn                                 Decimal?   @default(0) @db.Decimal(19, 2)
-  id_pph_fk                                   Int?
-  nominal_pph                                 Decimal?   @default(0) @db.Decimal(19, 2)
-  total_transaksi                             Decimal    @default(0) @db.Decimal(19, 2)
-  id_partner_fk                               String?    @db.VarChar(50)
-  id_user_fk                                  String?    @db.VarChar(50)
-  created_at                                  DateTime?  @default(now()) @db.Timestamp(6)
-  updated_at                                  DateTime?  @default(now()) @db.Timestamp(6)
-  m_coa_transaksi_pajak_id_akun_debitTom_coa  m_coa?     @relation("transaksi_pajak_id_akun_debitTom_coa", fields: [id_akun_debit], references: [id_coa], onDelete: NoAction, onUpdate: NoAction, map: "fk_akun_debit")
-  m_coa_transaksi_pajak_id_akun_kreditTom_coa m_coa?     @relation("transaksi_pajak_id_akun_kreditTom_coa", fields: [id_akun_kredit], references: [id_coa], onDelete: NoAction, onUpdate: NoAction, map: "fk_akun_kredit")
-  m_company                                   m_company  @relation(fields: [id_company_fk], references: [id_company], onDelete: NoAction, onUpdate: NoAction, map: "fk_company")
-  m_partner                                   m_partner? @relation(fields: [id_partner_fk], references: [id_partner], onDelete: NoAction, onUpdate: NoAction, map: "fk_partner")
-  m_pph                                       m_pph?     @relation(fields: [id_pph_fk], references: [id_pph], onDelete: NoAction, onUpdate: NoAction, map: "fk_pph")
-  m_ppn                                       m_ppn?     @relation(fields: [id_ppn_fk], references: [id_ppn], onDelete: NoAction, onUpdate: NoAction, map: "fk_ppn")
-  users                                       users?     @relation(fields: [id_user_fk], references: [id_user], onDelete: NoAction, onUpdate: NoAction, map: "fk_user")
+  id_transaksi        BigInt    @id @default(autoincrement())
+  id_company_fk       String?   @db.VarChar(50)
+  
+  tanggal_pencatatan  DateTime  @db.Date
+  tanggal_invoice     DateTime  @db.Date
+  tanggal_jatuh_tempo DateTime  @db.Date
+  no_invoice          String    @db.VarChar(100)
+  no_faktur           String    @db.VarChar(100)
+  type                e_type
+  
+  id_akun_debit       String    @db.VarChar(20)
+  id_akun_kredit      String    @db.VarChar(20)
+
+  // --- REKAP ---
+  total_dpp           Decimal   @default(0) @db.Decimal(19, 2) // Total semua item
+  
+  id_ppn_fk           Int?
+  total_ppn           Decimal?  @default(0) @db.Decimal(19, 2)
+  
+  id_pph_fk           Int?
+  total_pph           Decimal?  @default(0) @db.Decimal(19, 2)
+  
+  total_transaksi     Decimal   @default(0) @db.Decimal(19, 2)
+
+  id_partner_fk       String?   @db.VarChar(50)
+  id_user_fk          String?   @db.VarChar(50)
+  created_at          DateTime? @default(now()) @db.Timestamp(6)
+  updated_at          DateTime? @default(now()) @db.Timestamp(6)
+
+  // Relasi ke Master
+  m_company                                   m_company? @relation(fields: [id_company_fk], references: [id_company])
+  m_partner                                   m_partner? @relation(fields: [id_partner_fk], references: [id_partner])
+  users                                       users?     @relation(fields: [id_user_fk], references: [id_user])
+  m_ppn                                       m_ppn?     @relation(fields: [id_ppn_fk], references: [id_ppn])
+  m_pph                                       m_pph?     @relation(fields: [id_pph_fk], references: [id_pph])
+  m_coa_debit                                 m_coa      @relation("debit", fields: [id_akun_debit], references: [id_coa])
+  m_coa_kredit                                m_coa      @relation("kredit", fields: [id_akun_kredit], references: [id_coa])
+
+  // Relasi ke Detail Produk (One to Many)
+  transaksi_detail    transaksi_detail[]
 
   @@index([id_company_fk], map: "idx_transaksi_company")
-  @@index([tanggal], map: "idx_transaksi_tanggal")
+}
+
+// --- MODEL BARU ---
+model transaksi_detail {
+  id_detail        BigInt          @id @default(autoincrement())
+  id_transaksi_fk  BigInt
+  
+  nama_produk      String          @db.VarChar(255)
+  deskripsi        String?         @db.Text
+  
+  qty              Decimal         @default(0) @db.Decimal(19, 2)
+  harga_satuan     Decimal         @default(0) @db.Decimal(19, 2)
+  sub_total        Decimal         @default(0) @db.Decimal(19, 2)
+
+  // Relasi Balik ke Header
+  transaksi_pajak  transaksi_pajak @relation(fields: [id_transaksi_fk], references: [id_transaksi], onDelete: Cascade)
 }
 
 model users {

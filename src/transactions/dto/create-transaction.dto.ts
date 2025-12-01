@@ -1,20 +1,49 @@
-import { IsString, IsNumber, IsDateString, IsEnum, IsOptional } from 'class-validator';
+import { IsString, IsNumber, IsDateString, IsEnum, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
+// 1. Buat DTO Khusus untuk Item Produk
+class ProductItemDto {
+  @IsString()
+  nama_produk: string;
+
+  @IsString()
+  @IsOptional()
+  deskripsi?: string;
+
+  @IsNumber()
+  qty: number;
+
+  @IsNumber()
+  harga_satuan: number; // Harga per item sebelum pajak
+}
+
+// 2. DTO Utama
 export class CreateTransactionDto {
   @IsString()
-  id_company: string;
+  @IsOptional()
+  id_company?: string;
 
   @IsDateString()
-  tanggal: string;
+  tanggal_pencatatan: string;
+
+  @IsDateString()
+  tanggal_invoice: string;
+
+  @IsDateString()
+  tanggal_jatuh_tempo: string;
 
   @IsString()
   no_invoice: string;
+
+  @IsString()
+  no_faktur: string;
 
   @IsEnum(['penjualan', 'pembelian'])
   type: 'penjualan' | 'pembelian';
 
   @IsString()
-  id_partner: string;
+  @IsOptional()
+  id_partner?: string;
 
   @IsString()
   id_akun_debit: string;
@@ -22,12 +51,19 @@ export class CreateTransactionDto {
   @IsString()
   id_akun_kredit: string;
 
-  @IsNumber()
-  dpp: number;
+  // --- FIELD ITEM DIHAPUS (qty, dpp, sub_total) ---
+  // Diganti dengan Array Products di bawah ini:
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductItemDto)
+  products: ProductItemDto[];
 
   @IsNumber()
   @IsOptional()
-  id_ppn?: number;
+  id_ppn_fk?: number;
 
-  // field lain opsional...
+  @IsNumber()
+  @IsOptional()
+  id_pph_fk?: number;
 }
