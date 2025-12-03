@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class TransactionsService {
@@ -96,20 +97,86 @@ export class TransactionsService {
     });
   }
 
-  async findAll() {
-    return this.prisma.transaksi_pajak.findMany({
-        orderBy: { created_at: 'desc' },
-        include: {
-            m_company: true,
-            m_partner: true,
-            m_ppn: true,
-            m_pph: true,
-            // Update nama relasi di sini juga
-            m_coa_debit: true,
-            m_coa_kredit: true,
-            // Include detail produk
-            transaksi_detail: true,
-        }
+async findAll(
+    month?: number, 
+    year?: number, 
+    type?: 'penjualan' | 'pembelian', 
+    searchAccount?: string // Bisa ID atau Nama Akun
+  ) {
+    
+    // 1. Konstruksi Filter (Where Clause)
+    const whereClause: Prisma.transaksi_pajakWhereInput = {
+      AND: [],
+    };
+
+    // Filter Tanggal (Bulan & Tahun)
+    if (month && year) {
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0); // Hari terakhir bulan tersebut
+      
+      (whereClause.AND as any[]).push({
+        tanggal_pencatatan: {
+          gte: startDate,
+          lte: endDate,
+        },
+      });
+    }
+
+    // Filter Tipe Transaksi
+    if (type) {
+      (whereClause.AND as any[]).push({ type: type });
+    }
+
+    // Filter Nama/ID Akun (Debit ATAU Kredit)
+    if (searchAccount) {
+      (whereClause.AND as any[]).push({
+        OR: [
+          // Cek Akun Debit (ID atau Nama)
+          { id_akun_debit: { contains: searchAccount, mode: 'insensitive' } },
+          { m_coa_debit: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } },
+          // Cek Akun Kredit (ID atau Nama)
+          { id_akun_kredit: { contains: searchAccount, mode: 'insensitive' } },
+          { m_coa_kredit: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
+    // 2. Query Data Transaksi
+    const transactions = await this.prisma.transaksi_pajak.findMany({
+      where: whereClause,
+      orderBy: { created_at: 'desc' },
+      include: {
+        m_company: true,
+        m_partner: true,
+        m_ppn: true,
+        m_pph: true,
+        m_coa_debit: true,
+        m_coa_kredit: true,
+        transaksi_detail: true,
+      },
     });
+
+    // 3. Query Aggregate (Untuk Total DPP & Total Transaksi Keseluruhan sesuai filter)
+    const aggregates = await this.prisma.transaksi_pajak.aggregate({
+      where: whereClause,
+      _sum: {
+        total_dpp: true,
+        total_transaksi: true,
+        total_ppn: true,
+        total_pph: true,
+      },
+    });
+
+    // 4. Return Format Data + Summary
+    return {
+      data: transactions,
+      summary: {
+        total_dpp: aggregates._sum.total_dpp || 0,
+        total_transaksi: aggregates._sum.total_transaksi || 0,
+        total_ppn: aggregates._sum.total_ppn || 0,
+        total_pph: aggregates._sum.total_pph || 0,
+        net_pajak: (Number(aggregates._sum.total_ppn || 0) - Number(aggregates._sum.total_pph || 0))
+      }
+    };
   }
 }
