@@ -97,85 +97,111 @@ export class TransactionsService {
     });
   }
 
-async findAll(
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
     month?: number, 
     year?: number, 
     type?: 'penjualan' | 'pembelian', 
-    searchAccount?: string // Bisa ID atau Nama Akun
+    searchAccount?: string
   ) {
-    
-    // 1. Konstruksi Filter (Where Clause)
+    const skip = (page - 1) * limit;
+
+    // 1. Konstruksi Filter (Hanya untuk Tabel & Pagination)
     const whereClause: Prisma.transaksi_pajakWhereInput = {
       AND: [],
     };
 
-    // Filter Tanggal (Bulan & Tahun)
     if (month && year) {
       const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0); // Hari terakhir bulan tersebut
-      
+      const endDate = new Date(year, month, 0);
       (whereClause.AND as any[]).push({
-        tanggal_pencatatan: {
-          gte: startDate,
-          lte: endDate,
-        },
+        tanggal_pencatatan: { gte: startDate, lte: endDate },
       });
     }
 
-    // Filter Tipe Transaksi
     if (type) {
       (whereClause.AND as any[]).push({ type: type });
     }
 
-    // Filter Nama/ID Akun (Debit ATAU Kredit)
     if (searchAccount) {
       (whereClause.AND as any[]).push({
         OR: [
-          // Cek Akun Debit (ID atau Nama)
           { id_akun_debit: { contains: searchAccount, mode: 'insensitive' } },
           { m_coa_debit: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } },
-          // Cek Akun Kredit (ID atau Nama)
           { id_akun_kredit: { contains: searchAccount, mode: 'insensitive' } },
           { m_coa_kredit: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } },
         ],
       });
     }
 
-    // 2. Query Data Transaksi
-    const transactions = await this.prisma.transaksi_pajak.findMany({
-      where: whereClause,
-      orderBy: { created_at: 'desc' },
-      include: {
-        m_company: true,
-        m_partner: true,
-        m_ppn: true,
-        m_pph: true,
-        m_coa_debit: true,
-        m_coa_kredit: true,
-        transaksi_detail: true,
-      },
-    });
+    // 2. Eksekusi Query
+    const [transactions, totalItems, globalStats] = await this.prisma.$transaction([
+      
+      // A. Query Data Tabel (TETAP PAKAI FILTER) -> Agar tabel berubah saat difilter
+      this.prisma.transaksi_pajak.findMany({
+        where: whereClause, 
+        orderBy: { created_at: 'desc' },
+        skip: skip,
+        take: limit,
+        include: {
+          m_company: true,
+          m_partner: true,
+          m_ppn: true,
+          m_pph: true,
+          m_coa_debit: true,
+          m_coa_kredit: true,
+          transaksi_detail: true,
+        },
+      }),
 
-    // 3. Query Aggregate (Untuk Total DPP & Total Transaksi Keseluruhan sesuai filter)
-    const aggregates = await this.prisma.transaksi_pajak.aggregate({
-      where: whereClause,
-      _sum: {
-        total_dpp: true,
-        total_transaksi: true,
-        total_ppn: true,
-        total_pph: true,
-      },
-    });
+      // B. Hitung Total Item untuk Pagination (TETAP PAKAI FILTER)
+      this.prisma.transaksi_pajak.count({
+        where: whereClause,
+      }),
 
-    // 4. Return Format Data + Summary
+      // C. Hitung Summary Global (HAPUS FILTER DISINI) -> Agar selalu total keseluruhan
+      this.prisma.transaksi_pajak.groupBy({
+        by: ['type'],
+        _sum: {
+          total_transaksi: true,
+          total_dpp: true,
+          total_ppn: true,
+          total_pph: true,
+        },
+        orderBy: { type: 'asc' },
+      })
+    ]);
+
+    // --- LOGIC AGGREGATION ---
+    const getSum = (tipe: 'penjualan' | 'pembelian', field: string) => {
+      const found = globalStats.find((g) => g.type === tipe);
+      return Number(found?._sum?.[field] || 0);
+    };
+
+    const total_penjualan = getSum('penjualan', 'total_transaksi');
+    const total_pembelian = getSum('pembelian', 'total_transaksi');
+    
+    const total_ppn = getSum('penjualan', 'total_ppn') + getSum('pembelian', 'total_ppn');
+    const total_pph = getSum('penjualan', 'total_pph') + getSum('pembelian', 'total_pph');
+
     return {
       data: transactions,
+      meta: {
+        total_items: totalItems,
+        total_pages: Math.ceil(totalItems / limit),
+        current_page: page,
+        per_page: limit,
+      },
+      // Summary ini sekarang berisi Total Seumur Hidup (All Time)
       summary: {
-        total_dpp: aggregates._sum.total_dpp || 0,
-        total_transaksi: aggregates._sum.total_transaksi || 0,
-        total_ppn: aggregates._sum.total_ppn || 0,
-        total_pph: aggregates._sum.total_pph || 0,
-        net_pajak: (Number(aggregates._sum.total_ppn || 0) - Number(aggregates._sum.total_pph || 0))
+        total_transaksi: total_penjualan + total_pembelian,
+        total_penjualan: total_penjualan,
+        total_pembelian: total_pembelian,
+        total_dpp: getSum('penjualan', 'total_dpp') + getSum('pembelian', 'total_dpp'),
+        total_ppn: total_ppn,
+        total_pph: total_pph,
+        net_pajak: total_ppn - total_pph
       }
     };
   }
