@@ -49,8 +49,13 @@ model transaksi_pajak {
   id_transaksi        BigInt    @id @default(autoincrement())
   id_company_fk       String?   @db.VarChar(50)
   
+  nama_proyek         String?   @db.VarChar(255) // Untuk Pembelian & Penjualan
+  pengaju             String?   @db.VarChar(100) // Untuk Pembelian & Penjualan
+  nama_sales          String?   @db.VarChar(100) // KHUSUS Penjualan
+  
   tanggal_pencatatan  DateTime  @db.Date
   tanggal_invoice     DateTime  @db.Date
+  due_date            Int?      @default(0)
   tanggal_jatuh_tempo DateTime  @db.Date
   no_invoice          String    @db.VarChar(100)
   no_faktur           String    @db.VarChar(100)
@@ -70,6 +75,8 @@ model transaksi_pajak {
   
   total_transaksi     Decimal   @default(0) @db.Decimal(19, 2)
 
+  status_pembayaran   Int       @default(0) @db.SmallInt
+  
   id_partner_fk       String?   @db.VarChar(50)
   id_user_fk          String?   @db.VarChar(50)
   created_at          DateTime? @default(now()) @db.Timestamp(6)

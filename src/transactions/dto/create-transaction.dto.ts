@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsDateString, IsEnum, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import { IsString, IsNumber, IsDateString, IsEnum, IsOptional, IsArray, ValidateNested, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 // 1. Buat DTO Khusus untuk Item Produk
@@ -23,6 +23,26 @@ export class CreateTransactionDto {
   @IsOptional()
   id_company?: string;
 
+  @IsString()
+  @IsOptional()
+  nama_proyek?: string;
+
+  @IsString()
+  @IsOptional()
+  pengaju?: string;
+
+  @IsString()
+  @IsOptional()
+  nama_sales?: string;
+
+  @IsNumber()
+  @IsOptional()
+  due_date?: number;
+  @IsNumber()
+  @IsOptional()
+  @IsIn([0, 1]) // Validasi hanya boleh angka 0 atau 1
+  status_pembayaran?: number;
+  
   @IsDateString()
   tanggal_pencatatan: string;
 

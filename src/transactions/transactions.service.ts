@@ -57,7 +57,11 @@ export class TransactionsService {
         no_invoice: dto.no_invoice,
         no_faktur: dto.no_faktur,
         type: dto.type,
-        
+        nama_proyek: dto.nama_proyek,
+        pengaju: dto.pengaju,
+        nama_sales: dto.type === 'penjualan' ? dto.nama_sales : null,
+        due_date: dto.due_date,
+        status_pembayaran: 0,
         total_dpp: total_dpp,
         total_ppn: total_ppn,
         total_pph: total_pph,
