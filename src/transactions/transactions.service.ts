@@ -9,46 +9,161 @@ export class TransactionsService {
 
   // --- CREATE ---
   async create(dto: CreateTransactionDto, userId: string) {
-    // 1. Loop Produk untuk menghitung Total DPP
+    // 1. Hitung DPP (Sama seperti sebelumnya)
     let total_dpp = 0;
-    
     const detailData = dto.products.map((product) => {
         const qty = Number(product.qty);
         const harga = Number(product.harga_satuan);
         const sub_total = qty * harga;
         total_dpp += sub_total; 
-
         return {
-            nama_produk: product.nama_produk,
-            deskripsi: product.deskripsi,
-            qty: qty,
-            harga_satuan: harga,
-            sub_total: sub_total
+            nama_produk: product.nama_produk, deskripsi: product.deskripsi,
+            qty: qty, harga_satuan: harga, sub_total: sub_total
         };
     });
 
-    // 2. Hitung Pajak
+    // 2. Hitung Pajak & Tentukan Akun Jurnal Otomatis
     let total_ppn = 0;
     let total_pph = 0;
-    let total_transaksi = total_dpp;
+    
+    // Variable untuk menampung ID COA Pajak yang terpilih
+    let selected_coa_ppn: string | null = null;
+    let selected_coa_pph: string | null = null;
 
+    // --- LOGIC PPN ---
     if (dto.id_ppn_fk) {
        const ppnData = await this.prisma.m_ppn.findUnique({ where: { id_ppn: dto.id_ppn_fk }});
        if (ppnData) {
           total_ppn = total_dpp * Number(ppnData.rate);
-          total_transaksi += total_ppn;
+          
+          // PILIH AKUN BERDASARKAN TIPE TRANSAKSI
+          if (dto.type === 'penjualan') {
+             selected_coa_ppn = ppnData.id_coa_keluaran; // Ex: 2.05.02... (Hutang PPN Keluaran)
+          } else {
+             selected_coa_ppn = ppnData.id_coa_masukan;  // Ex: 1.01.07... (PPN Masukan)
+          }
        }
     }
 
+    // --- LOGIC PPh ---
     if (dto.id_pph_fk) {
        const pphData = await this.prisma.m_pph.findUnique({ where: { id_pph: dto.id_pph_fk }});
        if (pphData) {
           total_pph = total_dpp * Number(pphData.rate);
-          total_transaksi -= total_pph; 
+
+          // PILIH AKUN BERDASARKAN TIPE TRANSAKSI
+          if (dto.type === 'penjualan') {
+             selected_coa_pph = pphData.id_coa_penjualan; // Ex: 2.05.02... (Prepaid/Potongan Customer)
+          } else {
+             selected_coa_pph = pphData.id_coa_pembelian; // Ex: 1.01.07... (Dibayar dimuka)
+          }
        }
     }
 
-    // 3. Simpan
+    // Hitung Grand Total
+    // Jika Penjualan: Customer Bayar = DPP + PPN - PPh (yang dipotong customer)
+    // Jika Pembelian: Kita Bayar = DPP + PPN - PPh (yang kita potong dari vendor)
+    let total_transaksi = total_dpp + total_ppn - total_pph;
+
+    // 3. Susun Jurnal (Double Entry)
+    const jurnalEntries: Prisma.transaksi_jurnalCreateWithoutTransaksi_pajakInput[] = [];
+
+    if (dto.type === 'penjualan') {
+        // === JURNAL PENJUALAN ===
+        
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: dto.id_akun_kredit } }, // Input User
+            posisi: 'kredit',
+            nominal: total_transaksi,
+            keterangan: '-'
+        });
+
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: dto.id_akun_debit } }, // Input User
+            posisi: 'debit',
+            nominal: total_dpp,
+            keterangan: '-'
+        });
+        
+        // 1. DEBIT: Piutang / Kas (Total Tagihan)
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: '1.01.02.02.00.01' } }, // Input User: 1.01.02...
+            posisi: 'debit',
+            nominal: total_transaksi,
+            keterangan: 'Piutang Penjualan'
+        });
+
+        // 2. KREDIT: Penjualan (Pendapatan)
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: '4.01.00.00.00.00' } }, // Input User: 4.01...
+            posisi: 'kredit',
+            nominal: total_dpp,
+            keterangan: 'Pendapatan Penjualan'
+        });
+
+        // 3. KREDIT: PPN Keluaran (Jika ada)
+        if (total_ppn > 0 && selected_coa_ppn) {
+            jurnalEntries.push({
+                m_coa: { connect: { id_coa: selected_coa_ppn } }, // Otomatis: 2.05.02...
+                posisi: 'kredit',
+                nominal: total_ppn,
+                keterangan: 'Hutang PPN Keluaran'
+            });
+        }
+
+        // 4. DEBIT: PPh Dibayar Dimuka (Jika ada)
+        // (Asumsi: Customer memotong PPh kita, jadi ini Aset/Prepaid buat kita)
+        if (total_pph > 0 && selected_coa_pph) {
+            jurnalEntries.push({
+                m_coa: { connect: { id_coa: selected_coa_pph } }, // Otomatis: 2.05.02...
+                posisi: 'debit',
+                nominal: total_pph,
+                keterangan: 'PPh Penjualan (Prepaid)'
+            });
+        }
+
+    } else {
+        // === JURNAL PEMBELIAN ===
+
+        // 1. KREDIT: Hutang / Kas (Total Bayar)
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: dto.id_akun_kredit } }, // Input User
+            posisi: 'kredit',
+            nominal: total_transaksi,
+            keterangan: 'Hutang Pembelian'
+        });
+
+        // 2. DEBIT: Pembelian (Biaya/Aset)
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: dto.id_akun_debit } }, // Input User
+            posisi: 'debit',
+            nominal: total_dpp,
+            keterangan: 'Biaya/Aset Pembelian'
+        });
+
+        // 3. DEBIT: PPN Masukan (Jika ada)
+        if (total_ppn > 0 && selected_coa_ppn) {
+            jurnalEntries.push({
+                m_coa: { connect: { id_coa: selected_coa_ppn } }, // Otomatis: 1.01.07...
+                posisi: 'debit',
+                nominal: total_ppn,
+                keterangan: 'PPN Masukan'
+            });
+        }
+
+        // 4. KREDIT: PPh Terhutang (Jika ada)
+        // (Asumsi: Kita memotong PPh Vendor, jadi ini Hutang kita ke Negara)
+        if (total_pph > 0 && selected_coa_pph) {
+            jurnalEntries.push({
+                m_coa: { connect: { id_coa: selected_coa_pph } }, // Otomatis: 1.01.07...
+                posisi: 'kredit',
+                nominal: total_pph,
+                keterangan: 'Hutang PPh Pembelian'
+            });
+        }
+    }
+
+    // 4. Simpan ke DB
     return this.prisma.transaksi_pajak.create({
       data: {
         tanggal_pencatatan: new Date(dto.tanggal_pencatatan),
@@ -61,23 +176,27 @@ export class TransactionsService {
         pengaju: dto.pengaju,
         nama_sales: dto.type === 'penjualan' ? dto.nama_sales : null,
         due_date: dto.due_date,
-        status_pembayaran: 0,
+        status_pembayaran: dto.status_pembayaran ?? 0,
+        
         total_dpp: total_dpp,
         total_ppn: total_ppn,
         total_pph: total_pph,
         total_transaksi: total_transaksi,
 
+        // Relasi
         ...(dto.id_company && { m_company: { connect: { id_company: dto.id_company } } }),
         users: { connect: { id_user: userId } },
-        m_coa_debit: { connect: { id_coa: dto.id_akun_debit } },
-        m_coa_kredit: { connect: { id_coa: dto.id_akun_kredit } },
         ...(dto.id_partner && { m_partner: { connect: { id_partner: dto.id_partner } } }),
         ...(dto.id_ppn_fk && { m_ppn: { connect: { id_ppn: dto.id_ppn_fk } } }),
         ...(dto.id_pph_fk && { m_pph: { connect: { id_pph: dto.id_pph_fk } } }),
 
-        transaksi_detail: { create: detailData }
+        transaksi_detail: { create: detailData },
+        transaksi_jurnal: { create: jurnalEntries } // Insert Jurnal
       },
-      include: { transaksi_detail: true }
+      include: { 
+        transaksi_detail: true,
+        transaksi_jurnal: true 
+      }
     });
   }
 
@@ -92,7 +211,6 @@ export class TransactionsService {
   ) {
     const skip = (page - 1) * limit;
 
-    // Filter Logic
     const whereClause: Prisma.transaksi_pajakWhereInput = { AND: [] };
 
     if (month && year) {
@@ -108,20 +226,22 @@ export class TransactionsService {
     }
 
     if (searchAccount) {
+      // Logic Search Baru: Cari ke dalam tabel Jurnal -> COA -> Nama Akun
       (whereClause.AND as any[]).push({
         OR: [
-          { id_akun_debit: { contains: searchAccount, mode: 'insensitive' } },
-          { m_coa_debit: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } },
-          { id_akun_kredit: { contains: searchAccount, mode: 'insensitive' } },
-          { m_coa_kredit: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } },
-          { no_invoice: { contains: searchAccount, mode: 'insensitive' } } // Tambah search by invoice
+          { no_invoice: { contains: searchAccount, mode: 'insensitive' } },
+          { 
+            transaksi_jurnal: { 
+                some: { 
+                    m_coa: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } 
+                } 
+            } 
+          }
         ],
       });
     }
 
-    // Execute Parallel
     const [transactions, totalItems, globalStats] = await this.prisma.$transaction([
-      // A. Data Table (Paginated)
       this.prisma.transaksi_pajak.findMany({
         where: whereClause,
         orderBy: { created_at: 'desc' },
@@ -132,16 +252,16 @@ export class TransactionsService {
           m_partner: true,
           m_ppn: true,
           m_pph: true,
-          m_coa_debit: true,
-          m_coa_kredit: true,
+          // Detail Jurnal perlu di-load agar frontend bisa ambil nama akunnya
+          transaksi_jurnal: {
+             include: { m_coa: true }
+          },
           transaksi_detail: true,
         },
       }),
 
-      // B. Count
       this.prisma.transaksi_pajak.count({ where: whereClause }),
 
-      // C. Summary Global (All Time / Tanpa Filter) - Sesuai request Anda sebelumnya
       this.prisma.transaksi_pajak.groupBy({
         by: ['type'],
         _sum: {
@@ -154,7 +274,6 @@ export class TransactionsService {
       })
     ]);
 
-    // Format Summary
     const getSum = (tipe: 'penjualan' | 'pembelian', field: string) => {
       const found = globalStats.find((g) => g.type === tipe);
       return Number(found?._sum?.[field] || 0);
@@ -185,14 +304,13 @@ export class TransactionsService {
     };
   }
 
-  // --- NEW: FIND ALL FOR EXPORT (NO PAGINATION) ---
+  // --- FIND ALL FOR EXPORT ---
   async findAllForExport(
     month?: number, 
     year?: number, 
     type?: 'penjualan' | 'pembelian', 
     searchAccount?: string
   ) {
-    // Logic filter SAMA PERSIS dengan findAll, tapi tanpa SKIP/TAKE
     const whereClause: Prisma.transaksi_pajakWhereInput = { AND: [] };
 
     if (month && year) {
@@ -210,16 +328,18 @@ export class TransactionsService {
     if (searchAccount) {
       (whereClause.AND as any[]).push({
         OR: [
-          { id_akun_debit: { contains: searchAccount, mode: 'insensitive' } },
-          { m_coa_debit: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } },
-          { id_akun_kredit: { contains: searchAccount, mode: 'insensitive' } },
-          { m_coa_kredit: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } },
-          { no_invoice: { contains: searchAccount, mode: 'insensitive' } }
+          { no_invoice: { contains: searchAccount, mode: 'insensitive' } },
+          { 
+            transaksi_jurnal: { 
+                some: { 
+                    m_coa: { nama_akun: { contains: searchAccount, mode: 'insensitive' } } 
+                } 
+            } 
+          }
         ],
       });
     }
 
-    // Return Raw Data (Array)
     return this.prisma.transaksi_pajak.findMany({
       where: whereClause,
       orderBy: { created_at: 'desc' },
@@ -228,8 +348,24 @@ export class TransactionsService {
         m_partner: true,
         m_ppn: true,
         m_pph: true,
-        m_coa_debit: true,
-        m_coa_kredit: true,
+        transaksi_jurnal: {
+            include: { m_coa: true }
+        },
+      },
+    });
+  }
+  
+  // --- FIND ONE (Untuk Detail PDF) ---
+  async findOne(id: number) {
+    return this.prisma.transaksi_pajak.findUnique({
+      where: { 
+        id_transaksi: id 
+      },
+      include: {
+        m_company: true,
+        m_partner: true,
+        transaksi_detail: true,
+        transaksi_jurnal: { include: { m_coa: true } }
       },
     });
   }

@@ -7,11 +7,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ------------------------------------------
+// MASTER DATA
+// ------------------------------------------
+
+// Update model m_coa untuk menampung relasi balik (nama relation harus unik)
 model m_coa {
-  id_coa                                                String            @id @db.VarChar(20)
-  nama_akun                                             String            @db.VarChar(100)
-  transaksi_debit  transaksi_pajak[] @relation("debit")
-  transaksi_kredit transaksi_pajak[] @relation("kredit")
+  id_coa            String   @id @db.VarChar(20)
+  nama_akun         String   @db.VarChar(100)
+  
+  // Relasi Balik PPN
+  ppn_keluarans     m_ppn[]  @relation("ppn_keluaran")
+  ppn_masukans      m_ppn[]  @relation("ppn_masukan")
+  
+  // Relasi Balik PPh
+  pph_penjualans    m_pph[]  @relation("pph_penjualan")
+  pph_pembelians    m_pph[]  @relation("pph_pembelian")
+
+  jurnal_entries    transaksi_jurnal[]
 }
 
 model m_company {
@@ -30,96 +43,137 @@ model m_partner {
   transaksi_pajak transaksi_pajak[]
 }
 
-model m_pph {
-  id_pph          Int               @id @default(autoincrement())
-  label           String            @db.VarChar(50)
-  rate            Decimal           @db.Decimal(5, 4)
-  jenis_pph       String?           @db.VarChar(50)
-  transaksi_pajak transaksi_pajak[]
-}
-
 model m_ppn {
-  id_ppn          Int               @id @default(autoincrement())
-  label           String            @db.VarChar(50)
-  rate            Decimal           @db.Decimal(5, 4)
+  id_ppn          Int     @id @default(autoincrement())
+  label           String  @db.VarChar(50)
+  rate            Decimal @db.Decimal(5, 4)
+
+  // [UPDATED] Pisahkan Akun untuk Penjualan & Pembelian
+  id_coa_keluaran String? @db.VarChar(20) // UNTUK PENJUALAN (Hutang PPN Keluaran - 2.05...)
+  id_coa_masukan  String? @db.VarChar(20) // UNTUK PEMBELIAN (PPN Masukan - 1.01...)
+  
+  // Relasi ke COA
+  coa_keluaran    m_coa?  @relation("ppn_keluaran", fields: [id_coa_keluaran], references: [id_coa])
+  coa_masukan     m_coa?  @relation("ppn_masukan", fields: [id_coa_masukan], references: [id_coa])
+
   transaksi_pajak transaksi_pajak[]
 }
 
-model transaksi_pajak {
-  id_transaksi        BigInt    @id @default(autoincrement())
-  id_company_fk       String?   @db.VarChar(50)
+model m_pph {
+  id_pph          Int     @id @default(autoincrement())
+  label           String  @db.VarChar(50)
+  rate            Decimal @db.Decimal(5, 4)
+  jenis_pph       String? @db.VarChar(50)
   
-  nama_proyek         String?   @db.VarChar(255) // Untuk Pembelian & Penjualan
-  pengaju             String?   @db.VarChar(100) // Untuk Pembelian & Penjualan
-  nama_sales          String?   @db.VarChar(100) // KHUSUS Penjualan
-  
-  tanggal_pencatatan  DateTime  @db.Date
-  tanggal_invoice     DateTime  @db.Date
-  due_date            Int?      @default(0)
-  tanggal_jatuh_tempo DateTime  @db.Date
-  no_invoice          String    @db.VarChar(100)
-  no_faktur           String    @db.VarChar(100)
-  type                e_type
-  
-  id_akun_debit       String    @db.VarChar(20)
-  id_akun_kredit      String    @db.VarChar(20)
+  // [UPDATED] Pisahkan Akun untuk Penjualan & Pembelian
+  id_coa_penjualan String? @db.VarChar(20) // UNTUK PENJUALAN (PPh Dibayar Dimuka/Prepaid - 2.05...)
+  id_coa_pembelian String? @db.VarChar(20) // UNTUK PEMBELIAN (Hutang PPh/Dibayar Dimuka - 1.01...)
 
-  // --- REKAP ---
-  total_dpp           Decimal   @default(0) @db.Decimal(19, 2) // Total semua item
-  
-  id_ppn_fk           Int?
-  total_ppn           Decimal?  @default(0) @db.Decimal(19, 2)
-  
-  id_pph_fk           Int?
-  total_pph           Decimal?  @default(0) @db.Decimal(19, 2)
-  
-  total_transaksi     Decimal   @default(0) @db.Decimal(19, 2)
+  // Relasi ke COA
+  coa_penjualan    m_coa?  @relation("pph_penjualan", fields: [id_coa_penjualan], references: [id_coa])
+  coa_pembelian    m_coa?  @relation("pph_pembelian", fields: [id_coa_pembelian], references: [id_coa])
 
-  status_pembayaran   Int       @default(0) @db.SmallInt
-  
-  id_partner_fk       String?   @db.VarChar(50)
-  id_user_fk          String?   @db.VarChar(50)
-  created_at          DateTime? @default(now()) @db.Timestamp(6)
-  updated_at          DateTime? @default(now()) @db.Timestamp(6)
-
-  // Relasi ke Master
-  m_company                                   m_company? @relation(fields: [id_company_fk], references: [id_company])
-  m_partner                                   m_partner? @relation(fields: [id_partner_fk], references: [id_partner])
-  users                                       users?     @relation(fields: [id_user_fk], references: [id_user])
-  m_ppn                                       m_ppn?     @relation(fields: [id_ppn_fk], references: [id_ppn])
-  m_pph                                       m_pph?     @relation(fields: [id_pph_fk], references: [id_pph])
-  m_coa_debit                                 m_coa      @relation("debit", fields: [id_akun_debit], references: [id_coa])
-  m_coa_kredit                                m_coa      @relation("kredit", fields: [id_akun_kredit], references: [id_coa])
-
-  // Relasi ke Detail Produk (One to Many)
-  transaksi_detail    transaksi_detail[]
-
-  @@index([id_company_fk], map: "idx_transaksi_company")
+  transaksi_pajak transaksi_pajak[]
 }
 
-// --- MODEL BARU ---
-model transaksi_detail {
-  id_detail        BigInt          @id @default(autoincrement())
-  id_transaksi_fk  BigInt
-  
-  nama_produk      String          @db.VarChar(255)
-  deskripsi        String?         @db.Text
-  
-  qty              Decimal         @default(0) @db.Decimal(19, 2)
-  harga_satuan     Decimal         @default(0) @db.Decimal(19, 2)
-  sub_total        Decimal         @default(0) @db.Decimal(19, 2)
-
-  // Relasi Balik ke Header
-  transaksi_pajak  transaksi_pajak @relation(fields: [id_transaksi_fk], references: [id_transaksi], onDelete: Cascade)
-}
 
 model users {
   id_user         String            @id @db.VarChar(50)
   username        String            @unique @db.VarChar(100)
   password        String            @db.VarChar(255)
-  role            e_role            @default(dbgenerated("'user'::e_role"))
+  role            e_role            @default(user)
   transaksi_pajak transaksi_pajak[]
 }
+
+// ------------------------------------------
+// TRANSAKSI
+// ------------------------------------------
+
+model transaksi_pajak {
+  id_transaksi       BigInt    @id @default(autoincrement())
+  id_company_fk      String?   @db.VarChar(50)
+  
+  // Info Dokumen
+  nama_proyek        String?   @db.VarChar(255)
+  pengaju            String?   @db.VarChar(100)
+  nama_sales         String?   @db.VarChar(100)
+  
+  tanggal_pencatatan DateTime  @db.Date
+  tanggal_invoice    DateTime  @db.Date
+  due_date           Int?      @default(0)
+  tanggal_jatuh_tempo DateTime @db.Date
+  
+  no_invoice         String    @db.VarChar(100)
+  no_faktur          String    @db.VarChar(100)
+  type               e_type
+
+  // [DELETED] id_akun_debit & id_akun_kredit (Pindah ke tabel Jurnal)
+
+  // --- REKAPITULASI NOMINAL ---
+  total_dpp          Decimal   @default(0) @db.Decimal(19, 2)
+  
+  id_ppn_fk          Int?
+  total_ppn          Decimal?  @default(0) @db.Decimal(19, 2)
+  
+  id_pph_fk          Int?
+  total_pph          Decimal?  @default(0) @db.Decimal(19, 2)
+  
+  total_transaksi    Decimal   @default(0) @db.Decimal(19, 2)
+
+  status_pembayaran  Int       @default(0) @db.SmallInt
+  
+  id_partner_fk      String?   @db.VarChar(50)
+  id_user_fk         String?   @db.VarChar(50)
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @default(now()) @db.Timestamp(6)
+
+  // RELASI HEADER
+  m_company          m_company? @relation(fields: [id_company_fk], references: [id_company])
+  m_partner          m_partner? @relation(fields: [id_partner_fk], references: [id_partner])
+  users              users?     @relation(fields: [id_user_fk], references: [id_user])
+  m_ppn              m_ppn?     @relation(fields: [id_ppn_fk], references: [id_ppn])
+  m_pph              m_pph?     @relation(fields: [id_pph_fk], references: [id_pph])
+
+  // RELASI DETAIL (PRODUK & JURNAL)
+  transaksi_detail   transaksi_detail[]
+  transaksi_jurnal   transaksi_jurnal[]  // [NEW] Relasi ke Jurnal
+
+  @@index([id_company_fk], map: "idx_transaksi_company")
+}
+
+// Detail Produk (Untuk Print Invoice)
+model transaksi_detail {
+  id_detail       BigInt          @id @default(autoincrement())
+  id_transaksi_fk BigInt
+  
+  nama_produk     String          @db.VarChar(255)
+  deskripsi       String?         @db.Text
+  
+  qty             Decimal         @default(0) @db.Decimal(19, 2)
+  harga_satuan    Decimal         @default(0) @db.Decimal(19, 2)
+  sub_total       Decimal         @default(0) @db.Decimal(19, 2)
+
+  transaksi_pajak transaksi_pajak @relation(fields: [id_transaksi_fk], references: [id_transaksi], onDelete: Cascade)
+}
+
+// [NEW] Detail Jurnal Akuntansi (General Ledger)
+model transaksi_jurnal {
+  id_jurnal       BigInt          @id @default(autoincrement())
+  id_transaksi_fk BigInt
+  id_coa_fk       String          @db.VarChar(20)
+  
+  posisi          e_posisi        // Debit / Kredit
+  nominal         Decimal         @default(0) @db.Decimal(19, 2)
+  keterangan      String?         @db.VarChar(255)
+
+  // Relasi
+  transaksi_pajak transaksi_pajak @relation(fields: [id_transaksi_fk], references: [id_transaksi], onDelete: Cascade)
+  m_coa           m_coa           @relation(fields: [id_coa_fk], references: [id_coa])
+}
+
+// ------------------------------------------
+// ENUMS
+// ------------------------------------------
 
 enum e_role {
   admin
@@ -129,4 +183,9 @@ enum e_role {
 enum e_type {
   penjualan
   pembelian
+}
+
+enum e_posisi {
+  debit
+  kredit
 }
