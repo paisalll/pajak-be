@@ -90,10 +90,12 @@ model users {
 // ------------------------------------------
 
 model transaksi_pajak {
-  id_transaksi       BigInt    @id @default(autoincrement())
+  // [UPDATED] Ubah menjadi String dan HAPUS @default(autoincrement())
+  id_transaksi       String    @id @db.VarChar(50) 
+  
   id_company_fk      String?   @db.VarChar(50)
   
-  // Info Dokumen
+  // ... field lain (nama_proyek, dll) TETAP SAMA ...
   nama_proyek        String?   @db.VarChar(255)
   pengaju            String?   @db.VarChar(100)
   nama_sales         String?   @db.VarChar(100)
@@ -107,17 +109,11 @@ model transaksi_pajak {
   no_faktur          String    @db.VarChar(100)
   type               e_type
 
-  // [DELETED] id_akun_debit & id_akun_kredit (Pindah ke tabel Jurnal)
-
-  // --- REKAPITULASI NOMINAL ---
   total_dpp          Decimal   @default(0) @db.Decimal(19, 2)
-  
   id_ppn_fk          Int?
   total_ppn          Decimal?  @default(0) @db.Decimal(19, 2)
-  
   id_pph_fk          Int?
   total_pph          Decimal?  @default(0) @db.Decimal(19, 2)
-  
   total_transaksi    Decimal   @default(0) @db.Decimal(19, 2)
 
   status_pembayaran  Int       @default(0) @db.SmallInt
@@ -127,28 +123,28 @@ model transaksi_pajak {
   created_at         DateTime? @default(now()) @db.Timestamp(6)
   updated_at         DateTime? @default(now()) @db.Timestamp(6)
 
-  // RELASI HEADER
+  // RELASI
   m_company          m_company? @relation(fields: [id_company_fk], references: [id_company])
   m_partner          m_partner? @relation(fields: [id_partner_fk], references: [id_partner])
   users              users?     @relation(fields: [id_user_fk], references: [id_user])
   m_ppn              m_ppn?     @relation(fields: [id_ppn_fk], references: [id_ppn])
   m_pph              m_pph?     @relation(fields: [id_pph_fk], references: [id_pph])
 
-  // RELASI DETAIL (PRODUK & JURNAL)
   transaksi_detail   transaksi_detail[]
-  transaksi_jurnal   transaksi_jurnal[]  // [NEW] Relasi ke Jurnal
+  transaksi_jurnal   transaksi_jurnal[] 
 
   @@index([id_company_fk], map: "idx_transaksi_company")
 }
 
-// Detail Produk (Untuk Print Invoice)
+// Detail Produk
 model transaksi_detail {
   id_detail       BigInt          @id @default(autoincrement())
-  id_transaksi_fk BigInt
+  
+  // [UPDATED] Ubah tipe Foreign Key jadi String
+  id_transaksi_fk String          @db.VarChar(50) 
   
   nama_produk     String          @db.VarChar(255)
   deskripsi       String?         @db.Text
-  
   qty             Decimal         @default(0) @db.Decimal(19, 2)
   harga_satuan    Decimal         @default(0) @db.Decimal(19, 2)
   sub_total       Decimal         @default(0) @db.Decimal(19, 2)
@@ -156,17 +152,18 @@ model transaksi_detail {
   transaksi_pajak transaksi_pajak @relation(fields: [id_transaksi_fk], references: [id_transaksi], onDelete: Cascade)
 }
 
-// [NEW] Detail Jurnal Akuntansi (General Ledger)
+// Detail Jurnal
 model transaksi_jurnal {
   id_jurnal       BigInt          @id @default(autoincrement())
-  id_transaksi_fk BigInt
-  id_coa_fk       String          @db.VarChar(20)
   
-  posisi          e_posisi        // Debit / Kredit
+  // [UPDATED] Ubah tipe Foreign Key jadi String
+  id_transaksi_fk String          @db.VarChar(50)
+  
+  id_coa_fk       String          @db.VarChar(20)
+  posisi          e_posisi      
   nominal         Decimal         @default(0) @db.Decimal(19, 2)
   keterangan      String?         @db.VarChar(255)
 
-  // Relasi
   transaksi_pajak transaksi_pajak @relation(fields: [id_transaksi_fk], references: [id_transaksi], onDelete: Cascade)
   m_coa           m_coa           @relation(fields: [id_coa_fk], references: [id_coa])
 }

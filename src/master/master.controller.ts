@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { MasterService } from './master.service';
 import { AuthGuard } from '@nestjs/passport';
 
@@ -21,6 +21,11 @@ export class MasterController {
   getCOA() {
     return this.masterService.getCOA();
   }
+
+  // @Post('coa')
+  // createCOA() {
+  //   return this.masterService.createCOA({nama_akun:},);
+  // }
 
   @Get('ppn')
   getPPN() {

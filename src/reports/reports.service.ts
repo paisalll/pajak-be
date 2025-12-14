@@ -224,7 +224,7 @@ export class ReportsService {
   }
 
   // --- DOWNLOAD PDF SATUAN (INVOICE) ---
-  async downloadPdf(res: Response, idTransaksi: number) {
+  async downloadPdf(res: Response, idTransaksi: string) {
     const trx = await this.transactionService.findOne(idTransaksi);
 
     if (!trx) {

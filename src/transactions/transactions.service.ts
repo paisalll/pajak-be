@@ -7,9 +7,46 @@ import { Prisma } from '@prisma/client';
 export class TransactionsService {
   constructor(private prisma: PrismaService) {}
 
-  // --- CREATE ---
+  private async generateTransactionId(): Promise<string> {
+    const now = new Date();
+    // Ambil 2 digit tahun terakhir (misal 2025 -> 25)
+    const yearShort = now.getFullYear().toString().slice(-2); 
+    const prefix = 'INV-';
+    const suffix = `/${yearShort}`;
+
+    // Cari transaksi terakhir yang memiliki format tahun ini
+    // Query: SELECT * FROM transaksi_pajak WHERE CAST(id_transaksi AS TEXT) LIKE '%/25' ORDER BY id_transaksi DESC LIMIT 1
+    const lastTransaction = await this.prisma.transaksi_pajak.findFirst({
+        where: {
+            id_transaksi: { endsWith: suffix as any }
+        },
+        orderBy: {
+            id_transaksi: 'desc'
+        }
+    });
+
+    let sequence = 1;
+
+    if (lastTransaction) {
+        // Contoh ID: INV-00005/25
+        // 1. Split '/' -> ["INV-00005", "25"]
+        const parts = lastTransaction.id_transaksi.toString().split('/');
+        
+        // 2. Ambil bagian depan "INV-00005", Split '-' -> ["INV", "00005"]
+        const numberPart = parts[0].split('-')[1]; // "00005"
+        
+        // 3. Increment
+        sequence = parseInt(numberPart) + 1;
+    }
+
+    // Format ulang: INV + (sequence dipadding 0 jadi 5 digit) + / + tahun
+    // Contoh: INV-00001/25
+    return `${prefix}${sequence.toString().padStart(5, '0')}${suffix}`;
+  }
+  
   async create(dto: CreateTransactionDto, userId: string) {
     // 1. Hitung DPP (Sama seperti sebelumnya)
+    const newId = await this.generateTransactionId();
     let total_dpp = 0;
     const detailData = dto.products.map((product) => {
         const qty = Number(product.qty);
@@ -166,6 +203,7 @@ export class TransactionsService {
     // 4. Simpan ke DB
     return this.prisma.transaksi_pajak.create({
       data: {
+        id_transaksi: newId,
         tanggal_pencatatan: new Date(dto.tanggal_pencatatan),
         tanggal_invoice: new Date(dto.tanggal_invoice),
         tanggal_jatuh_tempo: new Date(dto.tanggal_jatuh_tempo),
@@ -356,7 +394,7 @@ export class TransactionsService {
   }
   
   // --- FIND ONE (Untuk Detail PDF) ---
-  async findOne(id: number) {
+  async findOne(id: string) {
     return this.prisma.transaksi_pajak.findUnique({
       where: { 
         id_transaksi: id 
