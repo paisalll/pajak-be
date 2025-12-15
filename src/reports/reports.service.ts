@@ -26,6 +26,7 @@ export class ReportsService {
     worksheet.columns = [
       { header: 'Tanggal', key: 'tanggal', width: 15 },
       { header: 'No Invoice', key: 'invoice', width: 25 },
+      { header: 'No Invoice Customer/Vendor', key: 'invoice_customer_vendor', width: 25 },
       { header: 'Tipe', key: 'type', width: 15 },
       { header: 'Partner / Vendor', key: 'partner', width: 30 },
       { header: 'Akun Utama', key: 'akun', width: 25 }, // Akun Jurnal
@@ -61,7 +62,8 @@ export class ReportsService {
 
         worksheet.addRow({
             tanggal: row.tanggal_pencatatan,
-            invoice: row.no_invoice,
+            invoice: row.id_transaksi,
+            invoice_customer_vendor: row.no_invoice,
             type: row.type.toUpperCase(),
             partner: row.m_partner?.nama_partner || '-',
             akun: akunName,
@@ -74,12 +76,12 @@ export class ReportsService {
 
     // 5. Footer Total
     const totalRowNumber = data.length + 2;
-    worksheet.getCell(`E${totalRowNumber}`).value = 'GRAND TOTAL';
-    worksheet.getCell(`E${totalRowNumber}`).font = { bold: true };
-    worksheet.getCell(`F${totalRowNumber}`).value = { formula: `SUM(F2:F${data.length + 1})` };
-    worksheet.getCell(`G${totalRowNumber}`).value = { formula: `SUM(G2:G${data.length + 1})` };
-    worksheet.getCell(`H${totalRowNumber}`).value = { formula: `SUM(H2:H${data.length + 1})` };
-    worksheet.getCell(`I${totalRowNumber}`).value = { formula: `SUM(I2:I${data.length + 1})` };
+    worksheet.getCell(`F${totalRowNumber}`).value = 'GRAND TOTAL';
+    worksheet.getCell(`F${totalRowNumber}`).font = { bold: true };
+    worksheet.getCell(`G${totalRowNumber}`).value = { formula: `SUM(F2:F${data.length + 1})` };
+    worksheet.getCell(`H${totalRowNumber}`).value = { formula: `SUM(G2:G${data.length + 1})` };
+    worksheet.getCell(`I${totalRowNumber}`).value = { formula: `SUM(H2:H${data.length + 1})` };
+    worksheet.getCell(`J${totalRowNumber}`).value = { formula: `SUM(I2:I${data.length + 1})` };
     worksheet.getRow(totalRowNumber).font = { bold: true };
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

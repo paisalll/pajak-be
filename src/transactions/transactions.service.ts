@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { Prisma } from '@prisma/client';
+import { UpdateTransactionDto } from './dto/update-transaction.dto';
 
 @Injectable()
 export class TransactionsService {
@@ -405,6 +406,180 @@ export class TransactionsService {
         transaksi_detail: true,
         transaksi_jurnal: { include: { m_coa: true } }
       },
+    });
+  }
+
+  async update(id: string, dto: UpdateTransactionDto, userId: string) {
+    // 1. Check if transaction exists
+    const existingTransaction = await this.prisma.transaksi_pajak.findUnique({
+      where: { id_transaksi: id },
+    });
+
+    if (!existingTransaction) {
+      throw new NotFoundException(`Transaction with ID ${id} not found`);
+    }
+
+    // 2. Logic Recalculate (Mirip dengan Create)
+    // NOTE: Karena UpdateDto partial, kita harus handle jika user tidak kirim produk/pajak baru.
+    // Tapi untuk simplifikasi dan integritas data, biasanya FE mengirim FULL DATA saat update invoice.
+    // Asumsi: DTO mengirim data lengkap (products, akun, pajak, dll) seperti Create.
+    
+    // A. Hitung DPP
+    let total_dpp = 0;
+    let detailDataCreateInput: Prisma.transaksi_detailCreateWithoutTransaksi_pajakInput[] = [];
+
+    if (dto.products && dto.products.length > 0) {
+        detailDataCreateInput = dto.products.map((product) => {
+            const qty = Number(product.qty);
+            const harga = Number(product.harga_satuan);
+            const sub_total = qty * harga;
+            total_dpp += sub_total; 
+            return {
+                nama_produk: product.nama_produk, deskripsi: product.deskripsi,
+                qty: qty, harga_satuan: harga, sub_total: sub_total
+            };
+        });
+    }
+
+    // B. Hitung Pajak & Akun Jurnal
+    let total_ppn = 0;
+    let total_pph = 0;
+    let selected_coa_ppn: string | null = null;
+    let selected_coa_pph: string | null = null;
+
+    if (dto.id_ppn_fk) {
+       const ppnData = await this.prisma.m_ppn.findUnique({ where: { id_ppn: dto.id_ppn_fk }});
+       if (ppnData) {
+          total_ppn = total_dpp * Number(ppnData.rate);
+          selected_coa_ppn = dto.type === 'penjualan' ? ppnData.id_coa_keluaran : ppnData.id_coa_masukan;
+       }
+    }
+
+    if (dto.id_pph_fk) {
+       const pphData = await this.prisma.m_pph.findUnique({ where: { id_pph: dto.id_pph_fk }});
+       if (pphData) {
+          total_pph = total_dpp * Number(pphData.rate);
+          selected_coa_pph = dto.type === 'penjualan' ? pphData.id_coa_penjualan : pphData.id_coa_pembelian;
+       }
+    }
+
+    let total_transaksi = total_dpp + total_ppn - total_pph;
+
+    // C. Susun Jurnal Baru
+    const jurnalEntries: Prisma.transaksi_jurnalCreateWithoutTransaksi_pajakInput[] = [];
+
+    if (dto.type === 'penjualan') {
+        // [Logic Jurnal Penjualan]
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: dto.id_akun_debit } },
+            posisi: 'debit', nominal: total_transaksi, keterangan: 'Piutang Penjualan'
+        });
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: dto.id_akun_kredit } },
+            posisi: 'kredit', nominal: total_dpp, keterangan: 'Pendapatan Penjualan'
+        });
+        if (total_ppn > 0 && selected_coa_ppn) {
+            jurnalEntries.push({
+                m_coa: { connect: { id_coa: selected_coa_ppn } },
+                posisi: 'kredit', nominal: total_ppn, keterangan: 'Hutang PPN Keluaran'
+            });
+        }
+        if (total_pph > 0 && selected_coa_pph) {
+            jurnalEntries.push({
+                m_coa: { connect: { id_coa: selected_coa_pph } },
+                posisi: 'debit', nominal: total_pph, keterangan: 'PPh Penjualan (Prepaid)'
+            });
+        }
+    } else {
+        // [Logic Jurnal Pembelian]
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: dto.id_akun_kredit } },
+            posisi: 'kredit', nominal: total_transaksi, keterangan: 'Hutang Pembelian'
+        });
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: dto.id_akun_debit } },
+            posisi: 'debit', nominal: total_dpp, keterangan: 'Biaya/Aset Pembelian'
+        });
+        if (total_ppn > 0 && selected_coa_ppn) {
+            jurnalEntries.push({
+                m_coa: { connect: { id_coa: selected_coa_ppn } },
+                posisi: 'debit', nominal: total_ppn, keterangan: 'PPN Masukan'
+            });
+        }
+        if (total_pph > 0 && selected_coa_pph) {
+            jurnalEntries.push({
+                m_coa: { connect: { id_coa: selected_coa_pph } },
+                posisi: 'kredit', nominal: total_pph, keterangan: 'Hutang PPh Pembelian'
+            });
+        }
+    }
+
+    // 3. EXECUTE UPDATE (Transaction)
+    // Kita gunakan $transaction agar delete & create atomic (berhasil semua atau gagal semua)
+    return this.prisma.$transaction(async (prisma) => {
+        // A. Hapus Detail Lama
+        await prisma.transaksi_detail.deleteMany({ where: { id_transaksi_fk: id } });
+        
+        // B. Hapus Jurnal Lama
+        await prisma.transaksi_jurnal.deleteMany({ where: { id_transaksi_fk: id } });
+
+        // C. Update Header & Insert New Children
+        return prisma.transaksi_pajak.update({
+            where: { id_transaksi: id },
+            data: {
+                tanggal_pencatatan: dto.tanggal_pencatatan ? new Date(dto.tanggal_pencatatan) : undefined,
+                tanggal_invoice: dto.tanggal_invoice ? new Date(dto.tanggal_invoice) : undefined,
+                tanggal_jatuh_tempo: dto.tanggal_jatuh_tempo ? new Date(dto.tanggal_jatuh_tempo) : undefined,
+                no_invoice: dto.no_invoice,
+                no_faktur: dto.no_faktur,
+                type: dto.type,
+                nama_proyek: dto.nama_proyek,
+                pengaju: dto.pengaju,
+                nama_sales: dto.type === 'penjualan' ? dto.nama_sales : null,
+                due_date: dto.due_date,
+                status_pembayaran: dto.status_pembayaran,
+
+                total_dpp: total_dpp,
+                total_ppn: total_ppn,
+                total_pph: total_pph,
+                total_transaksi: total_transaksi,
+
+                // Relasi (Connect jika ada ID baru, disconnect tidak perlu karena foreign key akan tertimpa)
+                ...(dto.id_company && { m_company: { connect: { id_company: dto.id_company } } }),
+                ...(dto.id_partner && { m_partner: { connect: { id_partner: dto.id_partner } } }),
+                ...(dto.id_ppn_fk ? { m_ppn: { connect: { id_ppn: dto.id_ppn_fk } } } : { m_ppn: { disconnect: true } }),
+                ...(dto.id_pph_fk ? { m_pph: { connect: { id_pph: dto.id_pph_fk } } } : { m_pph: { disconnect: true } }),
+                
+                // Track who updated
+                // users: { connect: { id_user: userId } }, // Optional: jika ingin track last updated by
+
+                // Insert New Children
+                transaksi_detail: { create: detailDataCreateInput },
+                transaksi_jurnal: { create: jurnalEntries }
+            },
+            include: {
+                transaksi_detail: true,
+                transaksi_jurnal: true
+            }
+        });
+    });
+  }
+  
+  async remove(id: string) {
+    // 1. Cek apakah transaksi ada
+    const transaction = await this.prisma.transaksi_pajak.findUnique({
+      where: { id_transaksi: id },
+    });
+
+    if (!transaction) {
+      throw new NotFoundException(`Transaction with ID ${id} not found`);
+    }
+
+    // 2. Hapus Transaksi
+    // Karena di schema.prisma sudah ada "onDelete: Cascade" pada relasi detail & jurnal,
+    // maka menghapus Header ini akan OTOMATIS menghapus detail dan jurnalnya juga.
+    return this.prisma.transaksi_pajak.delete({
+      where: { id_transaksi: id },
     });
   }
 }
