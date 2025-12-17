@@ -16,11 +16,7 @@ export class AuthService {
       where: { username: loginDto.username },
     });
     //Bycrypt comparison commented out for simplification
-    // if (!user || !await bcrypt.compare(loginDto.password, user.password)) {
-    //    throw new UnauthorizedException('Username atau password salah');
-    // }
-
-    if (!user || user.password !== loginDto.password) {
+    if (!user || !await bcrypt.compare(loginDto.password, user.password)) {
        throw new UnauthorizedException('Username atau password salah');
     }
 
