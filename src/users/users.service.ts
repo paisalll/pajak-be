@@ -14,24 +14,29 @@ export class UsersService {
     return result;
   }
   async create(dto: CreateUserDto) {
-    const existingUser = await this.prisma.users.findFirst({
-      where: {
-        OR: [{ username: dto.username }, { id_user: dto.id_user }],
+    // 1. Cek apakah username sudah ada
+    // (HAPUS pengecekan id_user karena ID digenerate otomatis)
+    const existingUser = await this.prisma.users.findUnique({ // Ubah findFirst jadi findUnique agar lebih cepat
+      where: { 
+        username: dto.username 
       },
     });
 
     if (existingUser) {
-      throw new ConflictException('Username atau ID User sudah digunakan');
+      throw new ConflictException('Username sudah digunakan');
     }
 
+    // 2. Hash Password
     const salt = await bcrypt.genSalt();
     const hashedPassword = await bcrypt.hash(dto.password, salt);
 
+    // 3. Simpan
+    // Prisma akan otomatis mengisi id_user dengan UUID karena @default(uuid()) di schema
     const newUser = await this.prisma.users.create({
       data: {
-        ...dto,
+        ...dto, 
         password: hashedPassword,
-      },
+      } as Prisma.usersCreateInput,
     });
 
     return this.excludePassword(newUser);

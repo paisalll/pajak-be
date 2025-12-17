@@ -6,11 +6,6 @@ export enum UserRole {
 }
 
 export class CreateUserDto {
-  @IsNotEmpty({ message: 'ID User tidak boleh kosong' })
-  @IsString()
-  @MaxLength(50)
-  id_user: string;
-
   @IsNotEmpty({ message: 'Username tidak boleh kosong' })
   @IsString()
   @MaxLength(100)
