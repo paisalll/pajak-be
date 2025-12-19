@@ -143,7 +143,7 @@ export class TransactionsService {
         if (total_ppn > 0 && selected_coa_ppn) {
             jurnalEntries.push({
                 m_coa: { connect: { id_coa: selected_coa_ppn } }, // Otomatis: 2.05.02...
-                posisi: 'kredit',
+                posisi: 'none',
                 nominal: total_ppn,
                 keterangan: 'Hutang PPN Keluaran'
             });
@@ -154,7 +154,7 @@ export class TransactionsService {
         if (total_pph > 0 && selected_coa_pph) {
             jurnalEntries.push({
                 m_coa: { connect: { id_coa: selected_coa_pph } }, // Otomatis: 2.05.02...
-                posisi: 'debit',
+                posisi: 'none',
                 nominal: total_pph,
                 keterangan: 'PPh Penjualan (Prepaid)'
             });
@@ -183,7 +183,7 @@ export class TransactionsService {
         if (total_ppn > 0 && selected_coa_ppn) {
             jurnalEntries.push({
                 m_coa: { connect: { id_coa: selected_coa_ppn } }, // Otomatis: 1.01.07...
-                posisi: 'debit',
+                posisi: 'none',
                 nominal: total_ppn,
                 keterangan: 'PPN Masukan'
             });
@@ -194,7 +194,7 @@ export class TransactionsService {
         if (total_pph > 0 && selected_coa_pph) {
             jurnalEntries.push({
                 m_coa: { connect: { id_coa: selected_coa_pph } }, // Otomatis: 1.01.07...
-                posisi: 'kredit',
+                posisi: 'none',
                 nominal: total_pph,
                 keterangan: 'Hutang PPh Pembelian'
             });
