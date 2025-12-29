@@ -32,6 +32,12 @@ model m_company {
   nama_perusahaan String            @db.VarChar(100)
   npwp            String?           @db.VarChar(20)
   alamat          String?
+  
+  // Field Baru (Optional)
+  no_telp         String?           @db.VarChar(30)
+  email           String?           @db.VarChar(100)
+  nama_sales      String?           @db.VarChar(100)
+
   transaksi_pajak transaksi_pajak[]
 }
 
@@ -39,7 +45,13 @@ model m_partner {
   id_partner      String            @id @db.VarChar(50)
   nama_partner    String            @db.VarChar(100)
   npwp            String?           @db.VarChar(20)
-  tipe            String?           @db.VarChar(20)
+  tipe            String?           @db.VarChar(20) // Customer / Vendor
+  
+  // Field Baru (Optional)
+  no_telp         String?           @db.VarChar(30)
+  email           String?           @db.VarChar(100)
+  nama_sales      String?           @db.VarChar(100)
+
   transaksi_pajak transaksi_pajak[]
 }
 

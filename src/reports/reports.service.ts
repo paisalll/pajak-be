@@ -10,7 +10,6 @@ export class ReportsService {
 
   // --- DOWNLOAD EXCEL ---
   async downloadExcel(res: Response, filters: any) {
-    // 1. Ambil Data
     const data = await this.transactionService.findAllForExport(
         filters.month, 
         filters.year, 
@@ -18,71 +17,123 @@ export class ReportsService {
         filters.search
     );
 
-    // 2. Setup Workbook
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Laporan Pajak');
 
-    // 3. Columns
     worksheet.columns = [
       { header: 'Tanggal', key: 'tanggal', width: 15 },
       { header: 'No Invoice', key: 'invoice', width: 25 },
-      { header: 'No Invoice Customer/Vendor', key: 'invoice_customer_vendor', width: 25 },
-      { header: 'Tipe', key: 'type', width: 15 },
-      { header: 'Partner / Vendor', key: 'partner', width: 30 },
-      { header: 'Akun Utama', key: 'akun', width: 25 }, // Akun Jurnal
-      { header: 'Total DPP', key: 'dpp', width: 20, style: { numFmt: '#,##0.00' } },
+      { header: 'No Invoice Vendor', key: 'invoice_vendor', width: 25 },
+      { header: 'Tipe', key: 'type', width: 12 },
+      { header: 'Partner', key: 'partner', width: 30 },
+      
+      { header: 'Akun Debit', key: 'akun_debit', width: 30 },
+      { header: 'Akun Kredit', key: 'akun_kredit', width: 30 },
+      
+      { header: 'List Akun COA', key: 'akun_detail', width: 40 }, 
+
+      { header: 'DPP', key: 'dpp', width: 18, style: { numFmt: '#,##0.00' } },
       { header: 'PPN', key: 'ppn', width: 18, style: { numFmt: '#,##0.00' } },
       { header: 'PPh', key: 'pph', width: 18, style: { numFmt: '#,##0.00' } },
-      { header: 'Grand Total', key: 'total', width: 25, style: { numFmt: '#,##0.00' } },
+      { header: 'Total', key: 'total', width: 20, style: { numFmt: '#,##0.00' } },
     ];
 
-    worksheet.getRow(1).font = { bold: true };
-    worksheet.getRow(1).alignment = { horizontal: 'center' };
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '2C3E50' } };
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
 
-    // 4. Populate Data
-    data.forEach((row) => {
-        // LOGIC CARI NAMA AKUN DARI JURNAL
-        // Penjualan -> Cari akun Kredit (Pendapatan)
-        // Pembelian -> Cari akun Debit (Biaya)
-        // Filter exclude akun pajak jika memungkinkan, atau ambil yang nominalnya = DPP
-        let akunName = '-';
-        
-        if (row.transaksi_jurnal && row.transaksi_jurnal.length > 0) {
-            const targetPosisi = row.type === 'penjualan' ? 'kredit' : 'debit';
-            // Cari jurnal yang posisinya sesuai DAN nominalnya mendekati DPP (Akun Utama)
-            // Atau ambil jurnal pertama yang sesuai posisi
-            const mainJournal = row.transaksi_jurnal.find(j => 
-                j.posisi === targetPosisi && Number(j.nominal) === Number(row.total_dpp)
-            ) || row.transaksi_jurnal.find(j => j.posisi === targetPosisi);
+    let currentRowIndex = 2; 
 
-            if (mainJournal && mainJournal.m_coa) {
-                akunName = mainJournal.m_coa.nama_akun;
-            }
+    data.forEach((trx) => {
+        let relevantJournals: any[] = trx.transaksi_jurnal || [];
+
+        if (relevantJournals.length === 0) {
+            relevantJournals = [{ m_coa: { id_coa: '-', nama_akun: '-' }, posisi: '-' }] as any[];
         }
 
-        worksheet.addRow({
-            tanggal: row.tanggal_pencatatan,
-            invoice: row.id_transaksi,
-            invoice_customer_vendor: row.no_invoice,
-            type: row.type.toUpperCase(),
-            partner: row.m_partner?.nama_partner || '-',
-            akun: akunName,
-            dpp: Number(row.total_dpp),
-            ppn: Number(row.total_ppn),
-            pph: Number(row.total_pph),
-            total: Number(row.total_transaksi)
+        const debitAccounts = relevantJournals
+            .filter(j => j.posisi === 'debit')
+            .map(j => `${j.m_coa?.id_coa} - ${j.m_coa?.nama_akun}` || 'Unknown')
+            .join('\n');
+
+        const creditAccounts = relevantJournals
+            .filter(j => j.posisi === 'kredit')
+            .map(j => `${j.m_coa?.id_coa} - ${j.m_coa?.nama_akun}` || 'Unknown')
+            .join('\n');
+
+        const rowCount = relevantJournals.length;
+        const startRow = currentRowIndex;
+        const endRow = currentRowIndex + rowCount - 1;
+
+        relevantJournals.forEach((jurnal, index) => {
+            const isFirstRow = index === 0;
+
+            worksheet.addRow({
+                tanggal: isFirstRow ? trx.tanggal_pencatatan : null,
+                invoice: isFirstRow ? trx.id_transaksi : null,
+                invoice_vendor: isFirstRow ? trx.no_invoice : null,
+                type: isFirstRow ? trx.type.toUpperCase() : null,
+                partner: isFirstRow ? (trx.m_partner?.nama_partner || '-') : null,
+                
+                akun_debit: isFirstRow ? debitAccounts : null,
+                akun_kredit: isFirstRow ? creditAccounts : null,
+
+                akun_detail: `${jurnal.m_coa?.id_coa || '?'} - ${jurnal.m_coa?.nama_akun || 'Unknown'}`,
+                
+                dpp: isFirstRow ? Number(trx.total_dpp) : null,
+                ppn: isFirstRow ? Number(trx.total_ppn) : null,
+                pph: isFirstRow ? Number(trx.total_pph) : null,
+                total: isFirstRow ? Number(trx.total_transaksi) : null,
+            });
         });
+
+        if (rowCount > 1) {
+            ['A', 'B', 'C', 'D', 'E', 'F', 'G'].forEach(col => {
+                 worksheet.mergeCells(`${col}${startRow}:${col}${endRow}`);
+            });
+            
+            ['I', 'J', 'K', 'L'].forEach(col => {
+                worksheet.mergeCells(`${col}${startRow}:${col}${endRow}`);
+            });
+        }
+
+        for (let r = startRow; r <= endRow; r++) {
+            const row = worksheet.getRow(r);
+            
+            row.eachCell((cell) => {
+                cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true }; // Wrap text aktif agar \n terbaca
+                cell.border = {
+                    top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+                };
+            });
+            
+            ['dpp', 'ppn', 'pph', 'total'].forEach(key => {
+                row.getCell(key).alignment = { vertical: 'top', horizontal: 'right' };
+            });
+        }
+
+        currentRowIndex += rowCount;
     });
 
-    // 5. Footer Total
-    const totalRowNumber = data.length + 2;
-    worksheet.getCell(`F${totalRowNumber}`).value = 'GRAND TOTAL';
-    worksheet.getCell(`F${totalRowNumber}`).font = { bold: true };
-    worksheet.getCell(`G${totalRowNumber}`).value = { formula: `SUM(F2:F${data.length + 1})` };
-    worksheet.getCell(`H${totalRowNumber}`).value = { formula: `SUM(G2:G${data.length + 1})` };
-    worksheet.getCell(`I${totalRowNumber}`).value = { formula: `SUM(H2:H${data.length + 1})` };
-    worksheet.getCell(`J${totalRowNumber}`).value = { formula: `SUM(I2:I${data.length + 1})` };
-    worksheet.getRow(totalRowNumber).font = { bold: true };
+    const footerRowIdx = currentRowIndex;
+    const footerRow = worksheet.getRow(footerRowIdx);
+    
+    footerRow.getCell(8).value = 'GRAND TOTAL'; 
+    footerRow.getCell(8).font = { bold: true };
+    footerRow.getCell(8).alignment = { horizontal: 'right' };
+
+    footerRow.getCell(9).value = { formula: `SUM(I2:I${footerRowIdx - 1})` };
+    footerRow.getCell(10).value = { formula: `SUM(J2:J${footerRowIdx - 1})` };
+    footerRow.getCell(11).value = { formula: `SUM(K2:K${footerRowIdx - 1})` };
+    footerRow.getCell(12).value = { formula: `SUM(L2:L${footerRowIdx - 1})` };
+
+    [9, 10, 11, 12].forEach(colIdx => {
+        const cell = footerRow.getCell(colIdx);
+        cell.font = { bold: true };
+        cell.border = { top: { style: 'double' }, bottom: { style: 'thick' } };
+        cell.numFmt = '#,##0.00';
+    });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=Laporan_Pajak_${new Date().getTime()}.xlsx`);
@@ -113,31 +164,32 @@ export class ReportsService {
 
     // Generate Rows
     const tableRows = data.map((row, index) => {
-        // Logic Akun (Sama dengan Excel)
-        let akunName = '-';
+        // --- LOGIC PERBAIKAN AKUN (PDF) ---
+        let akunHtml = '-';
         if (row.transaksi_jurnal && row.transaksi_jurnal.length > 0) {
             const targetPosisi = row.type === 'penjualan' ? 'kredit' : 'debit';
-            const mainJournal = row.transaksi_jurnal.find(j => 
-                j.posisi === targetPosisi && Number(j.nominal) === Number(row.total_dpp)
-            ) || row.transaksi_jurnal.find(j => j.posisi === targetPosisi);
+            
+            const relevantJournals = row.transaksi_jurnal.filter(j => j.posisi === targetPosisi);
 
-            if (mainJournal && mainJournal.m_coa) {
-                akunName = mainJournal.m_coa.nama_akun;
+            if (relevantJournals.length > 0) {
+                // Gunakan <div> atau <br/> agar turun ke bawah
+                akunHtml = relevantJournals
+                    .map(j => `<div style="margin-bottom: 2px;">${j.m_coa?.id_coa} - ${j.m_coa?.nama_akun}</div>`)
+                    .join(''); 
             }
         }
         
         return `
         <tr>
-            <td style="text-align: center;">${index + 1}</td>
-            <td style="text-align: center;">${fDate(row.tanggal_pencatatan)}</td>
-            <td>${row.no_invoice}</td>
-            <td>${row.m_partner?.nama_partner || '-'}</td>
-            <td>${akunName}</td>
-            <td style="text-align: center;">${row.type.toUpperCase()}</td>
-            <td style="text-align: right;">${fCurr(row.total_dpp)}</td>
-            <td style="text-align: right;">${fCurr(row.total_ppn)}</td>
-            <td style="text-align: right;">(${fCurr(row.total_pph)})</td>
-            <td style="text-align: right; font-weight: bold;">${fCurr(row.total_transaksi)}</td>
+            <td style="text-align: center; vertical-align: top;">${index + 1}</td>
+            <td style="text-align: center; vertical-align: top;">${fDate(row.tanggal_pencatatan)}</td>
+            <td style="vertical-align: top;">${row.no_invoice}</td>
+            <td style="vertical-align: top;">${row.m_partner?.nama_partner || '-'}</td>
+            <td style="vertical-align: top; font-size: 9px;">${akunHtml}</td> <td style="text-align: center; vertical-align: top;">${row.type.toUpperCase()}</td>
+            <td style="text-align: right; vertical-align: top;">${fCurr(row.total_dpp)}</td>
+            <td style="text-align: right; vertical-align: top;">${fCurr(row.total_ppn)}</td>
+            <td style="text-align: right; vertical-align: top;">(${fCurr(row.total_pph)})</td>
+            <td style="text-align: right; font-weight: bold; vertical-align: top;">${fCurr(row.total_transaksi)}</td>
         </tr>
         `;
     }).join('');
@@ -169,7 +221,7 @@ export class ReportsService {
                 <th width="8%">Tanggal</th>
                 <th width="12%">No Invoice</th>
                 <th width="15%">Partner</th>
-                <th width="12%">Akun</th>
+                <th width="15%">Akun COA</th>
                 <th width="8%">Tipe</th>
                 <th width="10%">DPP</th>
                 <th width="10%">PPN</th>

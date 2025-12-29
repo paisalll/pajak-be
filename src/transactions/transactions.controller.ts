@@ -11,7 +11,7 @@ import {
   Request 
 } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
-import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { CreateTransactionDto, UpdateStatusDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto'; // Import DTO
 import { AuthGuard } from '@nestjs/passport';
 
@@ -63,5 +63,13 @@ export class TransactionsController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.transactionsService.remove(id);
+  }
+
+  @Patch(':id/status')
+  updateStatus(
+    @Param('id') id: string, 
+    @Body() dto: UpdateStatusDto
+  ) {
+    return this.transactionsService.updateStatus(id, dto.status_pembayaran);
   }
 }

@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsDateString, IsEnum, IsOptional, IsArray, ValidateNested, IsIn } from 'class-validator';
+import { IsString, IsNumber, IsDateString, IsEnum, IsOptional, IsArray, ValidateNested, IsIn, IsNotEmpty, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 // 1. Buat DTO Khusus untuk Item Produk
@@ -30,10 +30,14 @@ export class CreateTransactionDto {
   @IsString()
   @IsOptional()
   pengaju?: string;
-
+  
   @IsString()
   @IsOptional()
   nama_sales?: string;
+  
+  @IsString()
+  @IsOptional()
+  no_invoice: string;
 
   @IsNumber()
   @IsOptional()
@@ -51,9 +55,6 @@ export class CreateTransactionDto {
 
   @IsDateString()
   tanggal_jatuh_tempo: string;
-
-  @IsString()
-  no_invoice: string;
 
   @IsString()
   no_faktur: string;
@@ -86,4 +87,12 @@ export class CreateTransactionDto {
   @IsNumber()
   @IsOptional()
   id_pph_fk?: number;
+}
+
+export class UpdateStatusDto {
+  @IsNotEmpty()
+  @IsNumber()
+  @Min(0) // Asumsi: 0 = Belum Lunas
+  @Max(2) // Asumsi: 1 = Lunas, 2 = Batal (Sesuaikan dengan logic bisnis Anda)
+  status_pembayaran: number;
 }

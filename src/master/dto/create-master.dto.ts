@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateCoaDto {
   @IsNotEmpty({ message: 'Kode Akun (ID COA) tidak boleh kosong' })
@@ -31,7 +31,23 @@ export class CreatePartnerDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
-  tipe?: string; // 'Customer' / 'Vendor'
+  tipe?: string;
+  
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  no_telp?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsEmail() // Opsional: Validasi format email
+  @MaxLength(100)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  nama_sales?: string;// 'Customer' / 'Vendor'
 }
 
 export class CreateCompanyDto {
@@ -53,6 +69,22 @@ export class CreateCompanyDto {
   @IsOptional()
   @IsString()
   alamat?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  no_telp?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsEmail() // Opsional: Validasi format email
+  @MaxLength(100)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  nama_sales?: string;
 }
 
 export class CreatePpnDto {

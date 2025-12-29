@@ -208,7 +208,7 @@ export class TransactionsService {
         tanggal_pencatatan: new Date(dto.tanggal_pencatatan),
         tanggal_invoice: new Date(dto.tanggal_invoice),
         tanggal_jatuh_tempo: new Date(dto.tanggal_jatuh_tempo),
-        no_invoice: dto.no_invoice,
+        no_invoice: dto.type === 'penjualan' ? newId : dto.no_invoice,
         no_faktur: dto.no_faktur,
         type: dto.type,
         nama_proyek: dto.nama_proyek,
@@ -580,6 +580,25 @@ export class TransactionsService {
     // maka menghapus Header ini akan OTOMATIS menghapus detail dan jurnalnya juga.
     return this.prisma.transaksi_pajak.delete({
       where: { id_transaksi: id },
+    });
+  }
+
+  async updateStatus(id: string, status: number) {
+    // 1. Cek apakah transaksi ada
+    const transaction = await this.prisma.transaksi_pajak.findUnique({
+      where: { id_transaksi: id },
+    });
+
+    if (!transaction) {
+      throw new NotFoundException(`Transaction with ID ${id} not found`);
+    }
+
+    // 2. Update status saja
+    return this.prisma.transaksi_pajak.update({
+      where: { id_transaksi: id },
+      data: {
+        status_pembayaran: status,
+      },
     });
   }
 }
