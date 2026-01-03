@@ -39,4 +39,12 @@ export class ReportsController {
     // Panggil method baru tadi
     return this.reportsService.downloadSummaryPdf(res, filters);
   }
+
+  @Get('pdf/:id')
+  async exportPdf(
+    @Param('id') id: string,
+    @Res() res: Response
+  ) {
+    return this.reportsService.downloadPdf(res, id);
+  }
 }
