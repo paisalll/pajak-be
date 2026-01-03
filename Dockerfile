@@ -5,6 +5,7 @@ COPY package*.json ./
 RUN npm install
 COPY . .
 RUN npm run build
+RUN npx prisma migrate deploy
 
 # Stage 2: Run
 FROM node:18-alpine
