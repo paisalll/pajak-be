@@ -46,9 +46,10 @@ export class TransactionsService {
   }
   
   async create(dto: CreateTransactionDto, userId: string) {
-    // 1. Hitung DPP (Sama seperti sebelumnya)
+    // 1. Generate ID & Hitung DPP
     const newId = await this.generateTransactionId();
     let total_dpp = 0;
+
     const detailData = dto.products.map((product) => {
         const qty = Number(product.qty);
         const harga = Number(product.harga_satuan);
@@ -60,148 +61,133 @@ export class TransactionsService {
         };
     });
 
-    // 2. Hitung Pajak & Tentukan Akun Jurnal Otomatis
+    // 2. Hitung Pajak
     let total_ppn = 0;
     let total_pph = 0;
     
-    // Variable untuk menampung ID COA Pajak yang terpilih
-    let selected_coa_ppn: string | null = null;
-    let selected_coa_pph: string | null = null;
+    // Tampung ID Akun Pajak
+    let coa_ppn_id: string | null = null;
+    let coa_pph_id: string | null = null;
 
-    // --- LOGIC PPN ---
+    // --- PPN ---
     if (dto.id_ppn_fk) {
        const ppnData = await this.prisma.m_ppn.findUnique({ where: { id_ppn: dto.id_ppn_fk }});
        if (ppnData) {
           total_ppn = total_dpp * Number(ppnData.rate);
-          
-          // PILIH AKUN BERDASARKAN TIPE TRANSAKSI
-          if (dto.type === 'penjualan') {
-             selected_coa_ppn = ppnData.id_coa_keluaran; // Ex: 2.05.02... (Hutang PPN Keluaran)
-          } else {
-             selected_coa_ppn = ppnData.id_coa_masukan;  // Ex: 1.01.07... (PPN Masukan)
-          }
+          // Jika Penjualan -> PPN Keluaran (Hutang), Jika Pembelian -> PPN Masukan (Aset)
+          coa_ppn_id = dto.type === 'penjualan' ? ppnData.id_coa_keluaran : ppnData.id_coa_masukan;
        }
     }
 
-    // --- LOGIC PPh ---
+    // --- PPh ---
     if (dto.id_pph_fk) {
        const pphData = await this.prisma.m_pph.findUnique({ where: { id_pph: dto.id_pph_fk }});
        if (pphData) {
           total_pph = total_dpp * Number(pphData.rate);
-
-          // PILIH AKUN BERDASARKAN TIPE TRANSAKSI
-          if (dto.type === 'penjualan') {
-             selected_coa_pph = pphData.id_coa_penjualan; // Ex: 2.05.02... (Prepaid/Potongan Customer)
-          } else {
-             selected_coa_pph = pphData.id_coa_pembelian; // Ex: 1.01.07... (Dibayar dimuka)
-          }
+          coa_pph_id = dto.type === 'penjualan' ? pphData.id_coa_penjualan : pphData.id_coa_pembelian;
        }
     }
 
-    // Hitung Grand Total
-    // Jika Penjualan: Customer Bayar = DPP + PPN - PPh (yang dipotong customer)
-    // Jika Pembelian: Kita Bayar = DPP + PPN - PPh (yang kita potong dari vendor)
+    // 3. Hitung Grand Total (Total Uang yang Berpindah Tangan)
+    // Rumus Akuntansi Umum: Tagihan = DPP + PPN - PPh
+    // (PPh dikurangi karena sifatnya Withholding/Potong Pungut)
     let total_transaksi = total_dpp + total_ppn - total_pph;
 
-    // 3. Susun Jurnal (Double Entry)
+    // 4. SUSUN JURNAL (MENGGUNAKAN INPUT USER + LOGIC PAJAK)
     const jurnalEntries: Prisma.transaksi_jurnalCreateWithoutTransaksi_pajakInput[] = [];
 
     if (dto.type === 'penjualan') {
-        // === JURNAL PENJUALAN ===
+        // ==========================================
+        // LOGIC PENJUALAN (SALES)
+        // ==========================================
         
+        // 1. DEBIT: Kas / Bank / Piutang (Aset Bertambah)
+        // Sebesar: Total Tagihan (Uang yang kita terima)
         jurnalEntries.push({
-            m_coa: { connect: { id_coa: dto.id_akun_kredit } }, // Input User
-            posisi: 'kredit',
-            nominal: total_transaksi,
-            keterangan: '-'
-        });
-
-        jurnalEntries.push({
-            m_coa: { connect: { id_coa: dto.id_akun_debit } }, // Input User
-            posisi: 'debit',
-            nominal: total_dpp,
-            keterangan: '-'
-        });
-        
-        // 1. DEBIT: Piutang / Kas (Total Tagihan)
-        jurnalEntries.push({
-            m_coa: { connect: { id_coa: '1.01.02.02.00.01' } }, // Input User: 1.01.02...
+            m_coa: { connect: { id_coa: dto.id_akun_debit } }, // User pilih: "Bank BCA" atau "Piutang Usaha"
             posisi: 'debit',
             nominal: total_transaksi,
-            keterangan: 'Piutang Penjualan'
+            keterangan: `Penerimaan Invoice ${newId}`
         });
 
-        // 2. KREDIT: Penjualan (Pendapatan)
+        // 2. KREDIT: Pendapatan / Penjualan (Ekuitas Bertambah)
+        // Sebesar: DPP (Murni harga barang/jasa kita)
         jurnalEntries.push({
-            m_coa: { connect: { id_coa: '4.01.00.00.00.00' } }, // Input User: 4.01...
+            m_coa: { connect: { id_coa: dto.id_akun_kredit } }, // User pilih: "Pendapatan Jasa"
             posisi: 'kredit',
             nominal: total_dpp,
-            keterangan: 'Pendapatan Penjualan'
+            keterangan: `Pendapatan Invoice ${newId}`
         });
 
-        // 3. KREDIT: PPN Keluaran (Jika ada)
-        if (total_ppn > 0 && selected_coa_ppn) {
+        // 3. KREDIT: Hutang PPN (Kewajiban Bertambah) -> Jika ada PPN
+        // Kita terima uang PPN, tapi itu titipan negara (Hutang)
+        if (total_ppn > 0 && coa_ppn_id) {
             jurnalEntries.push({
-                m_coa: { connect: { id_coa: selected_coa_ppn } }, // Otomatis: 2.05.02...
-                posisi: 'none',
+                m_coa: { connect: { id_coa: coa_ppn_id } },
+                posisi: 'kredit',
                 nominal: total_ppn,
-                keterangan: 'Hutang PPN Keluaran'
+                keterangan: 'PPN Keluaran'
             });
         }
 
-        // 4. DEBIT: PPh Dibayar Dimuka (Jika ada)
-        // (Asumsi: Customer memotong PPh kita, jadi ini Aset/Prepaid buat kita)
-        if (total_pph > 0 && selected_coa_pph) {
+        // 4. DEBIT: PPh Dibayar Dimuka (Aset Bertambah) -> Jika ada PPh
+        // Customer bayar kurang karena potong PPh. Bukti potong itu jadi Aset kita.
+        if (total_pph > 0 && coa_pph_id) {
             jurnalEntries.push({
-                m_coa: { connect: { id_coa: selected_coa_pph } }, // Otomatis: 2.05.02...
-                posisi: 'none',
+                m_coa: { connect: { id_coa: coa_pph_id } },
+                posisi: 'debit',
                 nominal: total_pph,
-                keterangan: 'PPh Penjualan (Prepaid)'
+                keterangan: 'Prepaid PPh 23'
             });
         }
 
     } else {
-        // === JURNAL PEMBELIAN ===
+        // ==========================================
+        // LOGIC PEMBELIAN (PURCHASE)
+        // ==========================================
 
-        // 1. KREDIT: Hutang / Kas (Total Bayar)
+        // 1. DEBIT: Biaya / Aset (Beban Bertambah)
+        // Sebesar: DPP
         jurnalEntries.push({
-            m_coa: { connect: { id_coa: dto.id_akun_kredit } }, // Input User
-            posisi: 'kredit',
-            nominal: total_transaksi,
-            keterangan: 'Hutang Pembelian'
-        });
-
-        // 2. DEBIT: Pembelian (Biaya/Aset)
-        jurnalEntries.push({
-            m_coa: { connect: { id_coa: dto.id_akun_debit } }, // Input User
+            m_coa: { connect: { id_coa: dto.id_akun_debit } }, // User pilih: "Biaya Sewa" atau "Inventaris"
             posisi: 'debit',
             nominal: total_dpp,
-            keterangan: 'Biaya/Aset Pembelian'
+            keterangan: `Biaya Invoice ${dto.no_invoice}`
         });
 
-        // 3. DEBIT: PPN Masukan (Jika ada)
-        if (total_ppn > 0 && selected_coa_ppn) {
+        // 2. KREDIT: Kas / Bank / Hutang (Aset Berkurang / Kewajiban Bertambah)
+        // Sebesar: Total Tagihan (Uang yang kita bayar ke vendor)
+        jurnalEntries.push({
+            m_coa: { connect: { id_coa: dto.id_akun_kredit } }, // User pilih: "Bank BCA" atau "Hutang Usaha"
+            posisi: 'kredit',
+            nominal: total_transaksi,
+            keterangan: `Pembayaran Invoice ${dto.no_invoice}`
+        });
+
+        // 3. DEBIT: PPN Masukan (Aset Bertambah) -> Jika ada PPN
+        // Kita bayar PPN ke vendor, ini jadi tabungan pajak kita
+        if (total_ppn > 0 && coa_ppn_id) {
             jurnalEntries.push({
-                m_coa: { connect: { id_coa: selected_coa_ppn } }, // Otomatis: 1.01.07...
-                posisi: 'none',
+                m_coa: { connect: { id_coa: coa_ppn_id } },
+                posisi: 'debit',
                 nominal: total_ppn,
                 keterangan: 'PPN Masukan'
             });
         }
 
-        // 4. KREDIT: PPh Terhutang (Jika ada)
-        // (Asumsi: Kita memotong PPh Vendor, jadi ini Hutang kita ke Negara)
-        if (total_pph > 0 && selected_coa_pph) {
+        // 4. KREDIT: Hutang PPh (Kewajiban Bertambah) -> Jika ada PPh
+        // Kita bayar ke vendor kurang, karena kita potong pajak mereka. Uang potongan itu jadi Hutang kita ke negara.
+        if (total_pph > 0 && coa_pph_id) {
             jurnalEntries.push({
-                m_coa: { connect: { id_coa: selected_coa_pph } }, // Otomatis: 1.01.07...
-                posisi: 'none',
+                m_coa: { connect: { id_coa: coa_pph_id } },
+                posisi: 'kredit',
                 nominal: total_pph,
-                keterangan: 'Hutang PPh Pembelian'
+                keterangan: 'Hutang PPh Potong Pungut'
             });
         }
     }
 
-    // 4. Simpan ke DB
+    // 5. Simpan ke DB (Sama seperti sebelumnya)
     return this.prisma.transaksi_pajak.create({
       data: {
         id_transaksi: newId,
@@ -230,7 +216,7 @@ export class TransactionsService {
         ...(dto.id_pph_fk && { m_pph: { connect: { id_pph: dto.id_pph_fk } } }),
 
         transaksi_detail: { create: detailData },
-        transaksi_jurnal: { create: jurnalEntries } // Insert Jurnal
+        transaksi_jurnal: { create: jurnalEntries } 
       },
       include: { 
         transaksi_detail: true,
